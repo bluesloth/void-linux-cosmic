@@ -1,0 +1,58 @@
+The Flatpak backend builds AppStream source ids with a "<name> (system)"
+suffix for system remotes so that user and system copies of the same
+remote stay distinct in the store's caches (ref_to_package matches on
+the suffixed id). The constructor, however, passed that suffixed id back
+into update_appstream_sync(), which libflatpak treats as a *remote name*
+(the C function documents its argument as "@remote_name: the name of the
+remote", flatpak-installation.c) and errors with
+`Remote "<name> (system)" not found` (raised in flatpak_dir_update_appstream,
+flatpak-dir.c).
+
+Because a cold start loads caches with refresh=false, the suffixed-id
+call is the Store's only self-healing attempt, so it can never fetch the
+AppStream catalog for system remotes (flathub on Void, fedora /
+fedora-testing on Fedora). The Browse grid stays empty until the catalog
+is produced elsewhere -- the store's post-update refresh, which uses the
+plain name, or `flatpak update --appstream` run as root.
+
+Use the plain remote name for the fetch only; the suffixed id remains
+the cache identity key. The plain name has to be bound at loop scope --
+previously it lived only inside the `remote.name()` match arm -- so the
+patch hoists it and derives the cache `source_id` from it.
+
+Confirmed still needed against epoch-1.10.0 upstream (tag epoch-1.10.0,
+src/backend/flatpak.rs:83). On the next epoch bump, verify whether
+upstream has repaired this update call (or dropped the "(system)"
+suffix) before dropping this patch -- see docs/UPSTREAM.md
+"Carried patches".
+
+diff --git a/src/backend/flatpak.rs b/src/backend/flatpak.rs
+index c3dfddc..10ddcd2 100644
+--- a/src/backend/flatpak.rs
++++ b/src/backend/flatpak.rs
+@@ -47,13 +47,14 @@ impl Flatpak {
+ 
+         let inst = this.installation()?;
+         for remote in inst.list_remotes(Cancellable::NONE)? {
+-            let source_id = match remote.name() {
+-                Some(name) => this.source_id(&name),
++            let name = match remote.name() {
++                Some(name) => name,
+                 None => {
+                     log::warn!("remote {:?} missing name", remote);
+                     continue;
+                 }
+             };
++            let source_id = this.source_id(&name);
+ 
+             let appstream_dir = match remote.appstream_dir(None).and_then(|x| x.path()) {
+                 Some(some) => some,
+@@ -80,7 +81,7 @@ impl Flatpak {
+ 
+             if update_appstream {
+                 log::info!("updating appstream data for remote {:?}", remote);
+-                match inst.update_appstream_sync(&source_id, None, Cancellable::NONE) {
++                match inst.update_appstream_sync(&name, None, Cancellable::NONE) {
+                     Ok(()) => {}
+                     Err(err) => {
+                         log::warn!(

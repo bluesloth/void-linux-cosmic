@@ -68,12 +68,29 @@ repins the `epoch-X.Y.Z` token in its `distfiles=` but does **not** touch
 `version=` simply tracks the epoch. Builds of either pull the rest of the set in
 as dependencies.
 
+## Carried patches
+
+A few templates carry local patches under `srcpkgs/<pkg>/patches/`. Each
+patch file documents its rationale and whether it is confirmed against the
+current epoch. When bumping to a new epoch:
+
+1. a patch that no longer applies (or whose rationale is gone) usually means
+   upstream shipped the fix - verify, then drop it;
+2. otherwise re-validate it against the new tree and keep it.
+
+Carried patches today:
+
+| package | patch | upstream status when added |
+| --- | --- | --- |
+| cosmic-store | `fix-system-appstream-refresh.patch` | pop-os/cosmic-store `epoch-1.10.0` still passes the `"<name> (system)"` cache source id as a flatpak remote name, so system-remote AppStream can never be fetched on a cold start (`Remote "flathub (system)" not found`). Symptoms reported upstream in issues #216 and #514; #551 (Fedora system remotes not shown) is open and likely the same root cause. |
+
 ## Release procedure
 
 ```sh
 tools/check-maintainer.sh              # identity gate
 tools/sync-upstream.sh                 # drift check (exit 2 when behind)
 tools/sync-upstream.sh --apply         # repin + refresh checksums + PINS.md
+# re-verify every patch in the "Carried patches" table above, then rebuild
 git diff --stat                        # review
 XBPS_DISTDIR=/path/to/void-packages tools/build-and-stage.sh
 # sign; copy the .xbps / .sig2 / <arch>-repodata into this repo's root; commit + push
