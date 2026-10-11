@@ -1,0 +1,23 @@
+# Template file for 'cosmic-settings-daemon'
+pkgname=cosmic-settings-daemon
+version=1.10.0
+revision=1
+archs="x86_64* i686"
+build_style=cargo
+configure_args="--all"
+hostmakedepends="pkg-config just cargo cargo-auditable"
+makedepends="clang22-devel eudev-libudev-devel libinput-devel geoclue2-devel libpulseaudio pipewire-devel openssl-devel libxkbcommon-devel"
+depends="geoclue2 dbus-libs eudev-libudev lame libvarlink libxkbcommon libpulseaudio libsndfile libxcb libasyncns libflac libvorbis libogg libmpg123 libXau libXdmcp opus cosmic-sound-theme"
+short_desc="COSMIC settings daemon"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-or-later"
+homepage="https://github.com/pop-os/cosmic-settings-daemon"
+distfiles="https://github.com/pop-os/cosmic-settings-daemon/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=e9a193e32857139fa00fcccf8c0ee42d3480b456e4ab8ade1a4cbfed93c70e28
+
+export GEOCLUE_AGENT="/usr/libexec/geoclue-2.0/demos/agent"
+
+do_install() {
+	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
+	vinstall ${FILESDIR}/custom 644 usr/share/cosmic/com.system76.CosmicSettings.Shortcuts/v1
+}

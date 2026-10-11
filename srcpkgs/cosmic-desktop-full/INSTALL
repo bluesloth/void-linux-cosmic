@@ -1,0 +1,129 @@
+case "$ACTION" in
+post)
+	# Fail loudly from here on. Upstream ended this hook with a literal
+	# `exit 0`, which discarded every non-zero status the block produced --
+	# including the `sed: can't read .../favorites` error that fires on every
+	# fresh install (no package ships that file; cosmic-applets creates it at
+	# first run). With the status swallowed, a real hook failure here would
+	# stay invisible indefinitely. `set -e` is scoped to the post action so
+	# the generic xbps trigger preamble above is unaffected.
+	set -e
+	if [ "$UPDATE" = "no" ]; then
+		# Void ships no Firefox, so drop it from the favorites list -- but only
+		# when Firefox really is absent. Note `-e` alone is NOT the right test
+		# here (or below): it follows symlinks, so a *dangling* /usr/bin/firefox
+		# reads as absent. A dangling entry is still an entry, so the probe is
+		# "exists OR is a symlink".
+		if [ ! -e /usr/bin/firefox ] && [ ! -h /usr/bin/firefox ]; then
+			# The favorites file is created by cosmic-applets at first run, so on
+			# a fresh install it does not exist yet -- hence the `-f` guard, and
+			# hence upstream's unconditional `sed -i` failing with exit 2 on every
+			# install. Upstream also used `s/firefox//`, which deletes the
+			# substring wherever it appears rather than dropping the entry: a
+			# favorite survived as `/usr/lib//firefox`, `Exec= --private-window`
+			# and a blank `Icon=`, which is worse than either keeping or removing
+			# it. `/firefox/d` removes the whole line, which is what removing an
+			# entry from a one-per-line list means. Rewriting through `cat` rather
+			# than `mv` keeps the original inode, owner and permissions.
+			favorites=/usr/share/cosmic/com.system76.CosmicAppList/v1/favorites
+			if [ -f "$favorites" ]; then
+				favorites_new="$favorites.new.$$"
+				sed '/firefox/d' "$favorites" > "$favorites_new"
+				cat "$favorites_new" > "$favorites"
+				rm -f "$favorites_new"
+			fi
+		fi
+		# KEYMAP is quoted in rc.conf (KEYMAP="us"); the layout must reach the RON
+		# string UNQUOTED. Taking it raw with
+		# `grep KEYMAP= /etc/rc.conf | cut -d= -f2` kept the quotes and the
+		# `sed -i "s/us/$layout/"` below then wrote `layout: ""us"",`, which is
+		# invalid RON: cosmic-comp fails to load its config with
+		# "ExpectedComma @ line 4, col 11" and cosmic-greeter-daemon crash-loops
+		# into a grey, blinking login screen (seen on <host>, 2026-10-05). Strip the
+		# quotes here, and fall back to "us" for anything that is not a plain
+		# layout token; the layout is interpolated into the heredoc below, so it
+		# must never carry RON or quote characters.
+		#
+		# The value may be quoted OR bare. Void's own rc.conf ships it quoted
+		# (KEYMAP="us"), but Void_Linux_Live writes it BARE from two places --
+		# installer.sh `s|#\?KEYMAP=.*|KEYMAP=$KEYMAP|g` and
+		# dracut/vmklive/locale.sh `s,^#KEYMAP=.*,KEYMAP=$KEYMAP,` -- so a live-ISO
+		# install with a non-US keymap has `KEYMAP=de`. A quoted-only pattern
+		# silently misses that and falls back to us, i.e. the wrong keyboard
+		# layout with no error anywhere. Strip optional quotes, allow an optional
+		# trailing comment, ignore commented-out lines, and reject anything else
+		# through the token test below.
+		#
+		# The trailing `| tail -1` also keeps this assignment's exit status at
+		# tail's, so a missing /etc/rc.conf cannot trip `set -e`; an empty result
+		# falls through to the us default below.
+		layout=$(sed -n 's/^[[:space:]]*KEYMAP=["]*\([^"[:space:]]*\)["]*[[:space:]]*\(#.*\)\{0,1\}$/\1/p' /etc/rc.conf 2>/dev/null | tail -1)
+		case "$layout" in
+		''|*[!a-zA-Z0-9_-]*) layout=us ;;
+		esac
+		mkdir -p /usr/share/cosmic/com.system76.CosmicComp/v1/
+		touch /usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config
+		cat > /usr/share/cosmic/com.system76.CosmicComp/v1/xkb_config <<EOF
+(
+rules: "",
+model: "",
+layout: "$layout",
+variant: "",
+options: None,
+repeat_delay: 600,
+repeat_rate: 25,
+)
+EOF
+		# Each of these three guards, and the two in the update arm below,
+		# protects a `ln -s`. Upstream tested `[ ! -h ]`, which is true only for
+		# a symlink, so a destination that was a regular file -- a hand-copied
+		# pipewire.conf.d snippet, a distros-style /etc override -- read as
+		# "absent", the hook proceeded, and `ln -s` failed with "File exists",
+		# which the blind `exit 0` then swallowed.
+		#
+		# Both halves of the test are needed. `-e` alone rejects the dangling
+		# symlink: on a second post run, or on any install where the package
+		# supplying the target has not been unpacked yet, `[ ! -e ]` is again
+		# true and `ln -s` fails with "File exists" -- reintroducing the very
+		# bug this guard is meant to prevent. A destination is occupied when it
+		# exists OR is a symlink.
+		if [ ! -e /etc/xdg/autostart/pipewire.desktop ] && [ ! -h /etc/xdg/autostart/pipewire.desktop ]; then
+			mkdir -p /etc/xdg/autostart
+			ln -s /usr/share/applications/pipewire.desktop /etc/xdg/autostart/
+		fi
+
+		mkdir -p /etc/pipewire/pipewire.conf.d
+		if [ ! -e /etc/pipewire/pipewire.conf.d/10-wireplumber.conf ] && [ ! -h /etc/pipewire/pipewire.conf.d/10-wireplumber.conf ]; then
+			ln -s /usr/share/examples/wireplumber/10-wireplumber.conf /etc/pipewire/pipewire.conf.d/
+		fi
+		if [ ! -e /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf ] && [ ! -h /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf ]; then
+			ln -s /usr/share/examples/pipewire/20-pipewire-pulse.conf /etc/pipewire/pipewire.conf.d/
+		fi
+	fi
+	if [ "$UPDATE" = "yes" ]; then
+		# Migrate the legacy /etc/xdg/autostart entries onto the pipewire.conf.d
+		# links above. These two guards test the file being *removed* rather than
+		# a `ln -s` destination. Upstream's `-h` was not the "File exists" bug
+		# and is kept deliberately: legacy autostart entries routinely dangle
+		# once their desktop file is gone, and `-h` is what removes them. The
+		# extra `-e` half additionally catches the regular-file case, where
+		# leaving the entry behind would start pipewire-pulse a second time --
+		# the exact condition this block exists to remove. Widening the
+		# removal test is the one change here that goes beyond the audit's
+		# letter; it is called out in the bundle README so it can be reviewed
+		# on its own.
+		if [ -e /etc/xdg/autostart/pipewire-pulse.desktop ] || [ -h /etc/xdg/autostart/pipewire-pulse.desktop ]; then
+			rm /etc/xdg/autostart/pipewire-pulse.desktop
+			if [ ! -e /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf ] && [ ! -h /etc/pipewire/pipewire.conf.d/20-pipewire-pulse.conf ]; then
+				ln -s /usr/share/examples/pipewire/20-pipewire-pulse.conf /etc/pipewire/pipewire.conf.d/
+			fi
+		fi
+		if [ -e /etc/xdg/autostart/wireplumber.desktop ] || [ -h /etc/xdg/autostart/wireplumber.desktop ]; then
+			rm /etc/xdg/autostart/wireplumber.desktop
+			if [ ! -e /etc/pipewire/pipewire.conf.d/10-wireplumber.conf ] && [ ! -h /etc/pipewire/pipewire.conf.d/10-wireplumber.conf ]; then
+				ln -s /usr/share/examples/wireplumber/10-wireplumber.conf /etc/pipewire/pipewire.conf.d/
+			fi
+		fi
+	fi
+	;;
+esac

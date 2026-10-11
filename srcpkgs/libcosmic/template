@@ -1,0 +1,22 @@
+# Template file for 'libcosmic'
+pkgname=libcosmic
+version=1.10.0
+revision=1
+archs="x86_64* i686"
+build_style=cargo-gitmodules
+configure_args="--all"
+hostmakedepends="pkg-config just git cargo cargo-auditable"
+makedepends="libxkbcommon-devel wayland-devel eudev-libudev-devel libinput-devel libgbm-devel libdisplay-info-devel pixman-devel libseat-devel"
+depends="libxkbcommon wayland eudev-libudev libinput libgbm libdisplay-info pixman libseat"
+short_desc="COSMIC GUI library"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-only, MPL-2.0"
+homepage="https://github.com/pop-os/libcosmic"
+distfiles="https://github.com/pop-os/libcosmic/archive/60ad2cc4c33d7500aba557cd9150e6938d72d5a1.tar.gz"
+checksum=b949e7778ea4cdc1aeebeb3a8e8db6ac523797dfdd0a720aadcc100c694cfb48
+
+do_install() {
+	# libcosmic's justfile is dev-tooling only (check/clean/doc) since 1.9;
+	# the package ships the static rlib (matches 1.9.0_1 contents exactly).
+	vinstall "target/${RUST_TARGET}/release/libcosmic.rlib" 644 usr/lib/
+}

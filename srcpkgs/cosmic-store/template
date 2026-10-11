@@ -1,0 +1,20 @@
+# Template file for 'cosmic-store'
+pkgname=cosmic-store
+version=1.10.0
+revision=1
+archs="x86_64*"
+build_style=cargo
+hostmakedepends="pkg-config just cargo cargo-auditable"
+makedepends="flatpak-devel glib-devel openssl-devel libxkbcommon-devel wayland-devel"
+depends="cosmic-icons flatpak"
+make_check=no
+short_desc="Application store for the COSMIC desktop"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-only"
+homepage="https://github.com/pop-os/cosmic-store"
+distfiles="https://github.com/pop-os/cosmic-store/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=8c68dde19cb5326f129d3b84c5d8fda2e4ed4286287e847742013900bb294278
+
+do_install() {
+	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
+}

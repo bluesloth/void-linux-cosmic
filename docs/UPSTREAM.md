@@ -1,0 +1,88 @@
+# Upstream tracking
+
+## The epoch model
+
+COSMIC is released as **epochs**. The aggregate repository
+[`pop-os/cosmic-epoch`](https://github.com/pop-os/cosmic-epoch) is a
+submodule umbrella, and every component repository carries the **same**
+`epoch-X.Y.Z` tag. Our templates therefore key the whole set off one number:
+
+```
+version=1.10.0
+distfiles="https://github.com/pop-os/cosmic-session/archive/refs/tags/epoch-${version}.tar.gz"
+```
+
+Upstream tags we currently follow: `epoch-1.10.0` (latest stable).
+
+## What `sync-upstream.sh` does
+
+`tools/sync-upstream.sh` reads the `epoch-*` tags from `pop-os/cosmic-epoch`
+(its single source of truth) and compares them with the pinned `version=` in
+`srcpkgs/*/template`.
+
+- **`--check`** (default) prints any template that is behind and exits `2`.
+  Wire this into CI / the coordination drift check.
+- **`--apply`** repins each epoch-tracking template:
+  - `version=` is set to the new epoch *only* for packages that followed the
+    previous epoch;
+  - any literal `epoch-X.Y.Z` token in `distfiles=` is rewritten;
+  - `checksum=` is recomputed from the downloaded tarball (cached in
+    `distfiles/`, which is git-ignored);
+  - `revision=` is reset to `1` when the template changes.
+- **`--pins`** regenerates `PINS.md` from the current templates (no network).
+
+Each template also ships a Void `update` file, so the standard
+`xbps-src update-check` workflow works alongside this script.
+
+## Special cases
+
+**`libcosmic` is commit-pinned.** Its `distfiles` is a commit archive
+(`archive/<sha>.tar.gz`), not an epoch tag, because libcosmic's tagged
+releases lag the epoch that ships it. `sync-upstream.sh` reports it as
+`commit-pinned (manual)` and never rewrites it. To advance it with an epoch
+bump, read the submodule pointer the aggregate tag records:
+
+```sh
+# in a checkout of pop-os/cosmic-epoch:
+git ls-tree epoch-1.11.0 libcosmic      # -> 160000 commit <sha>  libcosmic
+```
+
+then update `distfiles=` to
+`https://github.com/pop-os/libcosmic/archive/<sha>.tar.gz` and refresh
+`checksum=` (the tarball is cached by `--apply` if the URL is already updated,
+or fetch it yourself and run `sha256sum`).
+
+`libcosmic` also uses `build_style=cargo-gitmodules`, which is why the
+repository carries `common/build-style/cargo-gitmodules.sh`.
+
+## `pop-launcher` keeps its own version
+
+`pop-launcher` has `version=1.2.7` (its own upstream version, from
+`pop-os/launcher`) but is built from the COSMIC epoch tarball. `sync-upstream.sh`
+repins the `epoch-X.Y.Z` token in its `distfiles=` but does **not** touch
+`version=`.
+
+## Meta packages
+
+`cosmic-desktop-full` and `cosmic-desktop-minimal` have no `distfiles=`; their
+`version=` simply tracks the epoch. Builds of either pull the rest of the set in
+as dependencies.
+
+## Release procedure
+
+```sh
+tools/check-maintainer.sh              # identity gate
+tools/sync-upstream.sh                 # drift check (exit 2 when behind)
+tools/sync-upstream.sh --apply         # repin + refresh checksums + PINS.md
+git diff --stat                        # review
+XBPS_DISTDIR=/path/to/void-packages tools/build-and-stage.sh
+# sign; copy the .xbps / .sig2 / <arch>-repodata into this repo's root; commit + push
+```
+
+## Where the pieces live
+
+- **this repository** - templates + tracking + build method, and the served
+  binary repository at its root (built `.xbps` packages, their `.sig2`
+  signatures and the `<arch>-repodata` index the installer consumes), published
+  via GitHub Pages at <https://bluesloth.github.io/void-linux-cosmic/>;
+- **installer / live** - the consumers.

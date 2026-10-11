@@ -1,0 +1,25 @@
+# Template file for 'cosmic-applibrary'
+pkgname=cosmic-applibrary
+version=1.10.0
+revision=1
+archs="x86_64* i686"
+build_style="cargo"
+configure_args="--all"
+hostmakedepends="pkg-config just $(vopt_if sccache "rust-sccache")"
+makedepends="libxkbcommon-devel "
+depends="libxkbcommon"
+short_desc="Cosmic App Library"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-only"
+homepage="https://github.com/pop-os/cosmic-applibrary"
+distfiles="https://github.com/pop-os/cosmic-applibrary/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=43ce4f50c97d2106ac981080d8372e03c50af28660a6737400920ecbc6ce4b39
+build_options="sccache"
+
+pre_build() {
+	$(vopt_if sccache "export RUSTC_WRAPPER=/usr/bin/sccache")
+}
+
+do_install() {
+	CARGO_TARGET_DIR="target/${RUST_TARGET}" just rootdir=${DESTDIR} install
+}

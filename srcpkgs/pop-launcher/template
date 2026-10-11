@@ -1,0 +1,21 @@
+# Template file for 'pop-launcher'
+pkgname=pop-launcher
+version=1.2.7
+revision=2
+archs="x86_64*"
+build_style=cargo
+configure_args="-p pop-launcher-bin"
+hostmakedepends="pkg-config just cargo cargo-auditable"
+makedepends="wayland-devel libxkbcommon-devel"
+depends="qalculate fd"
+make_check=no
+short_desc="Launcher service providing search plugins for the COSMIC desktop"
+maintainer="Void Cosmic <noreply@github.com>"
+license="MPL-2.0"
+homepage="https://github.com/pop-os/launcher"
+distfiles="https://github.com/pop-os/launcher/archive/refs/tags/epoch-1.10.0.tar.gz"
+checksum=fbad44078bbebec9e2bc5f03d31a04a08191a877d7d524cf9e34f364e75c2429
+
+do_install() {
+	just rootdir="${DESTDIR}" target-dir="target/${RUST_TARGET}/release" install
+}

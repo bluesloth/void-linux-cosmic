@@ -1,0 +1,25 @@
+# Template file for 'cosmic-edit'
+pkgname=cosmic-edit
+version=1.10.0
+revision=1
+archs="x86_64*"
+build_style=cargo
+configure_args="--all"
+hostmakedepends="pkg-config just $(vopt_if sccache "rust-sccache")"
+makedepends="libxkbcommon-devel oniguruma-devel libzstd-devel libglib-devel"
+depends="libxkbcommon libzstd oniguruma"
+short_desc="COSMIC Text Editor"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-only"
+homepage="https://github.com/pop-os/cosmic-edit"
+distfiles="https://github.com/pop-os/cosmic-edit/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=2cd6e262d5762a62df6e27691b76991ebd0aa7674436e78f8bbee3d4bf8c9ec2
+build_options="sccache"
+
+pre_build() {
+	$(vopt_if sccache "export RUSTC_WRAPPER=/usr/bin/sccache")
+}
+
+do_install() {
+	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
+}

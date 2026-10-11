@@ -1,0 +1,16 @@
+# Template file for 'cosmic-icons'
+pkgname=cosmic-icons
+version=1.10.0
+revision=1
+hostmakedepends="just"
+depends="papirus-icon-theme"
+short_desc="COSMIC Icon Package"
+maintainer="Void Cosmic <noreply@github.com>"
+license="CC-BY-SA-4.0"
+homepage="https://github.com/pop-os/cosmic-icons"
+distfiles="https://github.com/pop-os/cosmic-icons/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=52625bef1b83ba2b08afe58197573738d72fb4d316de9d99eac34806a4cae80c
+
+do_install() {
+	just rootdir="${DESTDIR}" install
+}
