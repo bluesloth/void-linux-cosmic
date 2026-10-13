@@ -36,7 +36,7 @@ if [ -f "$deny" ]; then
 	if [ -s "$tmp" ]; then
 		hits=$(grep -rInE --exclude=check-maintainer.sh -f "$tmp" \
 			"$root/srcpkgs" "$root/common" "$root/tools" "$root/docs" \
-			"$root/README.md" "$root/PINS.md" 2>/dev/null || true)
+			"$root/README.md" "$root/PINS.md" "$root/CHANGELOG.md" 2>/dev/null || true)
 		if [ -n "$hits" ]; then
 			printf 'FAIL: disallowed identifier present:\n%s\n' "$hits" >&2
 			status=1

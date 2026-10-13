@@ -93,8 +93,16 @@ tools/sync-upstream.sh --apply         # repin + refresh checksums + PINS.md
 # re-verify every patch in the "Carried patches" table above, then rebuild
 git diff --stat                        # review
 XBPS_DISTDIR=/path/to/void-packages tools/build-and-stage.sh
-# sign; copy the .xbps / .sig2 / <arch>-repodata into this repo's root; commit + push
+tools/publish.sh --from DIR --privkey KEY          # sign + commit + tag locally
+tools/publish.sh --from DIR --privkey KEY --push   # ...and push
 ```
+
+`tools/publish.sh` signs the packages and the index with `xbps-rindex`, copies
+the `.xbps` / `.sig2` files and the `<arch>-repodata` index into the repository
+root, commits them, and tags the release from the tracked epoch
+(`epoch-<X.Y.Z>`, or `-r2`, `-r3`, … within the same epoch). Update
+`CHANGELOG.md` as part of the release. Run without `--push` to commit and tag
+locally, or with `--dry-run` to preview.
 
 ## Where the pieces live
 
