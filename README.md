@@ -31,6 +31,96 @@ CHANGELOG.md        release history (tagged `epoch-<X.Y.Z>`)
 <arch>-repodata     the built binary repo, served from the repository root
 ```
 
+## Installing (end user, on an existing Void install)
+
+The published repository is served from this repository's root over GitHub
+Pages. To consume it on a running Void system, as root:
+
+```sh
+# 1. add the repository (the 59- prefix sorts after Void's stock repo configs).
+#    Copy-paste as-is; drop the "sudo" if you are already root. The tee
+#    command prints the line back so you can see what was written:
+echo 'repository=https://bluesloth.github.io/void-linux-cosmic/' | sudo tee /etc/xbps.d/59-cosmic.conf
+
+#    ...or as a heredoc (same file, same content):
+sudo tee /etc/xbps.d/59-cosmic.conf >/dev/null <<'EOF'
+repository=https://bluesloth.github.io/void-linux-cosmic/
+EOF
+
+# 2. refresh the indexes; xbps will ask to import the repository signing
+#    key — answer y
+xbps-install -S
+
+# 3. install whichever package you want
+xbps-install cosmic-desktop-full      # the whole desktop, ready to use
+xbps-install cosmic-desktop-minimal   # the session itself, no extras
+xbps-install cosmic-store             # just the software store app
+xbps-install cosmic-greeter           # just the login screen (not in either meta-package)
+```
+
+Step 3 is ordinary xbps: dependencies are resolved and pulled automatically,
+and any of the packages above (or any single `cosmic-*` component) can be
+installed on its own.
+
+Before trusting anything from this repository, verify that the key imported
+in step 2 has the expected fingerprint:
+
+```
+SHA256 83ffd154d1dee504ea384a0c31b12e072d5884f7f75eb950e30ace852d7d2e7b
+```
+
+xbps has no command to print a repository key's fingerprint, so compute it
+from the stored key directly (as root):
+
+```sh
+for k in /var/db/xbps/keys/*.plist; do
+    b=$(sed -n '/<key>public-key<\/key>/,/<\/data>/p' "$k" | tail -n +2 \
+        | sed -e 's/.*<data>//' -e 's|</data>||' -e 's/[[:space:]]//g')
+    fp=$(printf '%s' "$b" | base64 -d 2>/dev/null \
+         | openssl pkey -pubin -outform DER 2>/dev/null \
+         | openssl dgst -sha256 2>/dev/null | sed 's/.*= *//')
+    printf '%s  %s\n' "${fp:-UNREADABLE}" "${k##*/}"
+done
+```
+
+The pinned fingerprint above must appear in the output. The other entries
+will be your other trusted repositories (Void's stock keys look like
+`05473705…` and `f0da25a2…`); if the pinned one is missing, or an
+unrecognised key is trusted for this repository, do not install — investigate
+first.
+
+Installed keys live in `/var/db/xbps/keys/*.plist`. This is a third-party
+repository: the signature chain above, not Void's official infrastructure, is
+what you are trusting. To verify what is being served, audit this repository
+on GitHub and compare against `x86_64-repodata`.
+
+### `cosmic-desktop-minimal` vs `cosmic-desktop-full`
+
+Both are meta-packages, and both already contain **every COSMIC component**:
+the compositor (`cosmic-comp`), panel, settings, the session
+(`cosmic-session`), and the full app suite (editor, files, terminal, player,
+viewer, screenshot tool, and so on). They differ only in the supporting stack
+pulled in around the session:
+
+| Component                                          | minimal | full |
+| -------------------------------------------------- | ------- | ---- |
+| COSMIC session + all COSMIC apps                   | yes     | yes  |
+| Audio stack (PipeWire, wireplumber, GStreamer, Bluetooth audio) | no | yes |
+| XWayland (running X11 apps)                        | no      | yes  |
+| Bluetooth (`bluez`)                                | no      | yes  |
+| Fonts (DejaVu, Liberation, Noto, Noto emoji)       | no      | yes  |
+| `pop-launcher`, `xdg-desktop-portal`, `xdg-user-dirs` | no   | yes  |
+| Base runtime deps (dbus, elogind, mesa, wayland, fontconfig) | yes | yes |
+
+- Choose **minimal** if you already run your own audio/fonts/portal stack, or
+  want to assemble exactly the extras you need on top.
+- Choose **full** for a ready-to-use desktop out of the box.
+
+Note that `cosmic-greeter` (the COSMIC login screen) is packaged here but is
+**not** pulled in by either meta-package — install it separately if you want
+it (`xbps-install cosmic-greeter`); otherwise log in through the display
+manager you already have and select the COSMIC session.
+
 ## Tracking upstream
 
 COSMIC ships as `epoch` releases: the aggregate repository
