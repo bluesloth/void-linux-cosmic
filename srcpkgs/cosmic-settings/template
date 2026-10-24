@@ -1,7 +1,7 @@
 # Template file for 'cosmic-settings'
 pkgname=cosmic-settings
-version=1.10.0
-revision=2
+version=1.11.0
+revision=1
 archs="x86_64* i686"
 build_style="cargo"
 configure_args="--all"
@@ -13,7 +13,7 @@ maintainer="Void Cosmic <noreply@github.com>"
 license="GPL-3.0-only"
 homepage="https://github.com/pop-os/cosmic-settings"
 distfiles="https://github.com/pop-os/cosmic-settings/archive/refs/tags/epoch-${version}.tar.gz"
-checksum=d11ba9d67d3fa279b659e31d64024366358b3f207ce6fe25564772805e517f34
+checksum=213459e770dc899da7f9d47557b7d3e4e27e1debb8d7af590995bd0f63da0a5e
 
 do_install() {
 	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install

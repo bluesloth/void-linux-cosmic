@@ -1,6 +1,6 @@
 # Template file for 'libcosmic'
 pkgname=libcosmic
-version=1.10.0
+version=1.11.0
 revision=1
 archs="x86_64* i686"
 build_style=cargo-gitmodules
@@ -12,8 +12,8 @@ short_desc="COSMIC GUI library"
 maintainer="Void Cosmic <noreply@github.com>"
 license="GPL-3.0-only, MPL-2.0"
 homepage="https://github.com/pop-os/libcosmic"
-distfiles="https://github.com/pop-os/libcosmic/archive/60ad2cc4c33d7500aba557cd9150e6938d72d5a1.tar.gz"
-checksum=b949e7778ea4cdc1aeebeb3a8e8db6ac523797dfdd0a720aadcc100c694cfb48
+distfiles="https://github.com/pop-os/libcosmic/archive/430f3d48a97d8779f9c1985473912e594ccca1ae.tar.gz"
+checksum=3e53163e2c1d92ea2403ec25f3d377539c542badab9d02e8adbc3efd7b9a02cb
 
 do_install() {
 	# libcosmic's justfile is dev-tooling only (check/clean/doc) since 1.9;

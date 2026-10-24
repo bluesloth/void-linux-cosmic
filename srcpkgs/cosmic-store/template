@@ -1,7 +1,7 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
-version=1.10.0
-revision=2
+version=1.11.0
+revision=1
 #
 # Carried patch: patches/fix-system-appstream-refresh.patch
 #   AppStream refresh for system flatpak remotes is broken upstream
@@ -21,7 +21,7 @@ maintainer="Void Cosmic <noreply@github.com>"
 license="GPL-3.0-only"
 homepage="https://github.com/pop-os/cosmic-store"
 distfiles="https://github.com/pop-os/cosmic-store/archive/refs/tags/epoch-${version}.tar.gz"
-checksum=8c68dde19cb5326f129d3b84c5d8fda2e4ed4286287e847742013900bb294278
+checksum=d8c95307e4a865ab4681a0be86fea98f82fb052ecc7bcea98fad2b8165c34e83
 
 do_install() {
 	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
