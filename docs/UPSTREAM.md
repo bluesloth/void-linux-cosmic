@@ -8,11 +8,11 @@ submodule umbrella, and every component repository carries the **same**
 `epoch-X.Y.Z` tag. Our templates therefore key the whole set off one number:
 
 ```
-version=1.10.0
+version=1.11.0
 distfiles="https://github.com/pop-os/cosmic-session/archive/refs/tags/epoch-${version}.tar.gz"
 ```
 
-Upstream tags we currently follow: `epoch-1.10.0` (latest stable).
+Upstream tags we currently follow: `epoch-1.11.0` (latest stable).
 
 ## What `sync-upstream.sh` does
 
@@ -82,7 +82,7 @@ Carried patches today:
 
 | package | patch | upstream status when added |
 | --- | --- | --- |
-| cosmic-store | `fix-system-appstream-refresh.patch` | pop-os/cosmic-store `epoch-1.10.0` still passes the `"<name> (system)"` cache source id as a flatpak remote name, so system-remote AppStream can never be fetched on a cold start (`Remote "flathub (system)" not found`). Symptoms reported upstream in issues #216 and #514; #551 (Fedora system remotes not shown) is open and likely the same root cause. |
+| cosmic-store | `fix-system-appstream-refresh.patch` | pop-os/cosmic-store `epoch-1.10.0` still passes the `"<name> (system)"` cache source id as a flatpak remote name, so system-remote AppStream can never be fetched on a cold start (`Remote "flathub (system)" not found`). Symptoms reported upstream in issues #216 and #514; #551 (Fedora system remotes not shown) is open and likely the same root cause. Re-checked against `epoch-1.11.0` (2026-10-24): the suffixed id is still passed to `update_appstream_sync()`, so the patch is still required. |
 
 ## Release procedure
 

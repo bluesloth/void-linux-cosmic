@@ -25,6 +25,76 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+## epoch-1.11.0-r2 — 2026-10-26
+
+Parity release: the served index is brought back in line with the templates.
+
+`epoch-1.11.0` shipped **30 of the 32** packages at `1.11.0`. The 2026-10-24
+build round built the set through `./xbps-src pkg cosmic-desktop-full`, and
+`cosmic-desktop-minimal` and `cosmic-store` are not in that metapackage's
+dependency tree, so both were never rebuilt and the index kept serving their
+`1.10.0` builds. Nothing was broken for users — both `1.10.0` builds are
+internally consistent and every dependency they declare is satisfied at
+`1.11.0` — but the served repository and `srcpkgs/` disagreed, which is a
+release-hygiene defect: a client asking for a *name* was served an older
+build than the templates describe.
+
+### Served repository (root)
+
+- `cosmic-desktop-minimal-1.11.0_1` (meta package) and
+  `cosmic-store-1.11.0_1` (Rust build) added, built from the already-pinned
+  `1.11.0` templates. The `1.10.0` builds of both stay on disk as rollback,
+  like every earlier build; the index lists only the newest per package.
+- `x86_64-repodata` regenerated and **re-signed** (`xbps-rindex -s`). Every
+  repack must be re-signed: an unsigned index makes clients abort at the
+  key check (2026-10-09 incident). The signing key is unchanged
+  (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
+- All 32 templates now resolve to their `1.11.0` build in the served index;
+  `coordination/check-pins.sh` gains a **template-vs-index drift guard** so a
+  future epoch bump cannot silently leave packages behind again.
+
+### Packaging sources (`srcpkgs/`)
+
+- No template changed in this release. `cosmic-store`'s carried patch
+  `fix-system-appstream-refresh` is unchanged; it was re-verified against the
+  `epoch-1.11.0` tree (upstream still hands the suffixed `"<name> (system)"`
+  cache source id to `update_appstream_sync()`), so it is still required.
+
+## epoch-1.11.0 — 2026-10-24
+
+Tracking upstream COSMIC **`epoch-1.11.0`**.
+
+### Packaging sources (`srcpkgs/`)
+
+- All 32 templates repinned to the upstream `epoch-1.11.0` tag by
+  `tools/sync-upstream.sh --apply`. `libcosmic` stays commit-pinned (its
+  tagged releases lag the epoch; build style `cargo-gitmodules`),
+  `pop-launcher` keeps its own version `1.2.7`, and the two meta packages
+  track the epoch. `PINS.md` was regenerated with the new checksums.
+- The package set is unchanged from `epoch-1.10.0` — 29 `cosmic-*` packages
+  plus `libcosmic`, `pop-launcher` and `xdg-desktop-portal-cosmic`. Nothing
+  added, nothing dropped.
+- All 14 carried patches were re-checked with `git apply --check -p1` against
+  the extracted `epoch-1.11.0` tarballs and still apply cleanly; none could
+  be dropped on this bump.
+
+### Served repository (root)
+
+- `1.11.0` builds of the component set, signed and indexed, published under
+  the `epoch-1.11.0` tag.
+- Two rounds of follow-up commits repaired the publish: the first publish left
+  **23 packages unsigned** (`396aac3`), `cosmic-icons` had no `.sig2` at all
+  (`da06595`), `pop-launcher`'s signature did not verify (`33ec9b0`), and
+  `cosmic-greeter-1.11.0_1` was only added afterwards (`65169e3`). The
+  `epoch-1.11.0` tag covers the first publish only, so `epoch-1.11.0-r2` is
+  the first tag whose tree matches what the index serves.
+
+### Known gaps at this tag, fixed in `epoch-1.11.0-r2`
+
+- `cosmic-desktop-minimal` and `cosmic-store` were never rebuilt for this
+  epoch (outside `cosmic-desktop-full`'s dependency tree), so the index kept
+  their `1.10.0` builds.
+
 ## epoch-1.10.0 — 2026-10-11
 
 Initial release, tracking upstream COSMIC **`epoch-1.10.0`**.
