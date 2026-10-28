@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop.org//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>COSMIC Store</vendor>
+  <vendor_url>https://github.com/pop-os/cosmic-store</vendor_url>
+  <icon_name>package-x-generic</icon_name>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-install">
+    <description>Install packages with COSMIC Store</description>
+    <message>Authentication is required to install software</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-y</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-remove">
+    <description>Remove packages with COSMIC Store</description>
+    <message>Authentication is required to remove software</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-remove</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-y</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-update">
+    <description>Update the system with COSMIC Store</description>
+    <message>Authentication is required to update the system</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">-Syu</annotate>
+  </action>
+</policyconfig>
