@@ -10,7 +10,7 @@ use std::{
 };
 
 use super::{Backend, Package};
-use crate::{AppId, AppInfo, AppstreamCache, Operation, OperationKind};
+use crate::{AppId, AppInfo, AppKind, AppRelease, AppstreamCache, Operation, OperationKind};
 
 #[derive(Debug)]
 pub struct Xbps {
@@ -113,10 +113,79 @@ fn run_privileged_update() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+
+impl Xbps {
+    fn synthesize_apps(&mut self) -> Result<(), Box<dyn Error>> {
+        let out = run_cmd("xbps-query", &["-l"])?;
+        let appstream_cache = &mut self.appstream_caches[0];
+        let source_id = appstream_cache.source_id.clone();
+        let source_name = appstream_cache.source_name.clone();
+        for line in out.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut parts = line.split_whitespace();
+            let _state = parts.next();
+            let pkgver = match parts.next() {
+                Some(p) => p.to_string(),
+                None => continue,
+            };
+            let (name, version) = split_name_version(&pkgver);
+            // Skip if already has appstream entry
+            if appstream_cache.pkgnames.contains_key(&name) {
+                continue;
+            }
+            let app_id = AppId::new(&format!("xbps:{}", name));
+            if appstream_cache.infos.contains_key(&app_id) {
+                continue;
+            }
+            let description = parts.collect::<Vec<_>>().join(" ");
+            let info = Arc::new(AppInfo {
+                source_id: source_id.clone(),
+                source_name: source_name.clone(),
+                origin_opt: None,
+                name: name.clone(),
+                summary: if description.is_empty() { name.clone() } else { description.clone() },
+                kind: crate::AppKind::DesktopApplication,
+                developer_name: "Void Linux".to_string(),
+                description: description.clone(),
+                license_opt: None,
+                pkgnames: vec![name.clone()],
+                package_paths: Vec::new(),
+                categories: Vec::new(),
+                desktop_ids: Vec::new(),
+                flatpak_refs: Vec::new(),
+                icons: vec![crate::app_info::AppIcon {
+                    kind: crate::app_info::IconKind::Name("package-x-generic".to_string()),
+                    width: 128,
+                    height: 128,
+                }],
+                provides: Vec::new(),
+                releases: vec![crate::AppRelease {
+                    timestamp: None,
+                    version: version.clone(),
+                    description: None,
+                    url: None,
+                }],
+                screenshots: Vec::new(),
+                urls: Vec::new(),
+                monthly_downloads: 0,
+            });
+            appstream_cache.pkgnames.entry(name).or_default().insert(app_id.clone());
+            appstream_cache.infos.insert(app_id, info);
+        }
+        Ok(())
+    }
+}
+
 impl Backend for Xbps {
     fn load_caches(&mut self, _refresh: bool) -> Result<(), Box<dyn Error>> {
         for appstream_cache in self.appstream_caches.iter_mut() {
             appstream_cache.reload();
+        }
+        // Synthesize app entries for all installed xbps packages
+        if let Err(e) = self.synthesize_apps() {
+            log::debug!("failed to synthesize xbps apps: {}", e);
         }
         Ok(())
     }
@@ -129,7 +198,6 @@ impl Backend for Xbps {
         let appstream_cache = &self.appstream_caches[0];
         let out = run_cmd("xbps-query", &["-l"])?;
         let mut packages = Vec::new();
-        let mut system_packages = Vec::new();
 
         for line in out.lines() {
             if line.trim().is_empty() {
@@ -143,8 +211,6 @@ impl Backend for Xbps {
                 None => continue,
             };
             let (name, version) = split_name_version(&pkgver);
-            // description is rest
-            let description = parts.collect::<Vec<_>>().join(" ");
 
             match appstream_cache.pkgnames.get(&name) {
                 Some(ids) => {
@@ -161,7 +227,19 @@ impl Backend for Xbps {
                     }
                 }
                 None => {
-                    system_packages.push((name, version, description));
+                    // Create synthetic entry
+                    let app_id = AppId::new(&format!("xbps:{}", name));
+                    if let Some(info) = appstream_cache.infos.get(&app_id) {
+                        packages.push(Package {
+                            id: app_id,
+                            icon: appstream_cache.icon(info),
+                            info: info.clone(),
+                            version: version.clone(),
+                            extra: HashMap::new(),
+                        });
+                    } else {
+                        log::debug!("no app info for {}", name);
+                    }
                 }
             }
         }
@@ -235,7 +313,16 @@ impl Backend for Xbps {
                     }
                 }
                 None => {
-                    log::debug!("no components for updatable package {}", name);
+                    let app_id = AppId::new(&format!("xbps:{}", name));
+                    if let Some(info) = appstream_cache.infos.get(&app_id) {
+                        packages.push(Package {
+                            id: app_id,
+                            icon: appstream_cache.icon(info),
+                            info: info.clone(),
+                            version: version.clone(),
+                            extra: HashMap::new(),
+                        });
+                    }
                 }
             }
         }
