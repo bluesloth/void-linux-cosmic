@@ -1,7 +1,7 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=1
+revision=2
 #
 # Carried patch: patches/fix-system-appstream-refresh.patch
 #   AppStream refresh for system flatpak remotes is broken upstream
@@ -12,9 +12,10 @@ revision=1
 #   patch -- see docs/UPSTREAM.md "Carried patches".
 archs="x86_64*"
 build_style=cargo
+configure_args="--features xbps"
 hostmakedepends="pkg-config just cargo cargo-auditable"
 makedepends="flatpak-devel glib-devel openssl-devel libxkbcommon-devel wayland-devel"
-depends="cosmic-icons flatpak"
+depends="cosmic-icons flatpak polkit"
 make_check=no
 short_desc="Application store for the COSMIC desktop"
 maintainer="Void Cosmic <noreply@github.com>"
@@ -23,6 +24,15 @@ homepage="https://github.com/pop-os/cosmic-store"
 distfiles="https://github.com/pop-os/cosmic-store/archive/refs/tags/epoch-${version}.tar.gz"
 checksum=d8c95307e4a865ab4681a0be86fea98f82fb052ecc7bcea98fad2b8165c34e83
 
+do_patch() {
+	# Copy our modified files directly (no patches needed)
+	cp ${FILESDIR}/Cargo.toml ${wrksrc}/Cargo.toml
+	cp ${FILESDIR}/mod.rs ${wrksrc}/src/backend/mod.rs
+	cp ${FILESDIR}/xbps.rs ${wrksrc}/src/backend/xbps.rs
+}
+
 do_install() {
 	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
+	install -Dm644 ${FILESDIR}/org.freedesktop.policykit.pkexec.cosmic-store.xbps.policy \
+		${DESTDIR}/usr/share/polkit-1/actions/org.freedesktop.policykit.pkexec.cosmic-store.xbps.policy
 }
