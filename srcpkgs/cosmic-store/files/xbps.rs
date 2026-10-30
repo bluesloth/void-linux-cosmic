@@ -25,6 +25,7 @@ use std::{
     collections::HashMap,
     error::Error,
     io::Read,
+    os::unix::process::ExitStatusExt,
     process::{Command, Stdio},
     sync::{Arc, mpsc},
     thread,
@@ -482,10 +483,18 @@ where
         // pkexec: not authorized, or the helper could not be executed.
         Some(127) => Err(format!("pkexec could not run {program}").into()),
         code => {
+            // `code()` is `None` when the child was killed by a signal (a
+            // cancelled transaction, an OOM kill, a crash): name the signal
+            // instead of reporting the unhelpful `exit None`.
+            let reason = match (code, status.signal()) {
+                (Some(code), _) => format!("exit {code}"),
+                (None, Some(sig)) => format!("terminated by signal {sig}"),
+                (None, None) => "terminated abnormally".to_string(),
+            };
             if detail.is_empty() {
-                Err(format!("{program} failed (exit {code:?})").into())
+                Err(format!("{program} failed ({reason})").into())
             } else {
-                Err(format!("{program} failed (exit {code:?}):\n{detail}").into())
+                Err(format!("{program} failed ({reason}):\n{detail}").into())
             }
         }
     }

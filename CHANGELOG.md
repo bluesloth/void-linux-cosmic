@@ -25,6 +25,46 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+## epoch-1.11.0-r4 — 2026-10-30
+
+Cosmetic store release: a helper killed by a signal now says so. Only
+`cosmic-store` is re-cut — the other 31 packages are byte-identical to
+`epoch-1.11.0-r3`.
+
+`epoch-1.11.0-r3` left one rough edge in the failure message. `run_privileged()`
+built it with `{code:?}` over `ExitStatus::code()`, and that call returns
+`None` for a child that died from a **signal** rather than exiting — a
+cancelled transaction, an OOM kill, a crash. The store therefore reported the
+nonsense `exit None` exactly when it had the most to explain.
+
+The message is now derived from the exit status: `exit N` for an ordinary
+non-zero exit, `terminated by signal N` when the child was signalled, and
+`terminated abnormally` for the neither case (`signal()` comes from
+`std::os::unix::process::ExitStatusExt`).
+
+Nothing else changed. pkexec's `126` (dialog dismissed) and `127` (helper not
+runnable) keep their dedicated wording, the helper output is still collected
+rather than forwarded, and the progress tracker is untouched.
+
+### Detail
+
+- Packaged binary `ca81ef9c…` (was `f566bd74…`); `strings` shows both new
+  literals and no remaining `failed (exit ` interpolation, and the previous
+  binary is the negative control for that check.
+- This changes reporting only: a GUI operation still cannot be cancelled,
+  because the child runs as root and cancelling needs a fourth privileged
+  polkit action. What the release fixes is the honesty of the report after an
+  external kill.
+
+### Served repository (root)
+
+- `cosmic-store-1.11.0_9` added; `1.11.0_8` and every earlier build stay on
+  disk (build numbers are not pruned — the index lists only the newest).
+- `x86_64-repodata` regenerated and **re-signed** with the unchanged key
+  (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
+  The index now carries 67 builds; every one of the 32 templates still
+  resolves to its own `version_revision`.
+
 ## epoch-1.11.0-r3 — 2026-10-30
 
 Store release: `cosmic-store`'s xbps backend update actually runs, and it
