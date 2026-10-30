@@ -1,7 +1,7 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=2
+revision=7
 #
 # Carried patch: patches/fix-system-appstream-refresh.patch
 #   AppStream refresh for system flatpak remotes is broken upstream
