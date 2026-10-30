@@ -25,6 +25,77 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+## epoch-1.11.0-r3 — 2026-10-30
+
+Store release: `cosmic-store`'s xbps backend update actually runs, and it
+reports real progress while it does. Only `cosmic-store` is re-cut — the
+other 31 packages are byte-identical to `epoch-1.11.0-r2`.
+
+Two user-visible defects were reported from the GUI:
+
+1. **The system update claimed success and changed nothing.** `run_privileged()`
+   spawned `pkexec /usr/bin/xbps-install -Syu` with `stdin(Stdio::null())`.
+   xbps asks "Do you want to continue?" unless `-y` is on the command line;
+   it read EOF (interpreted as *no*), printed `Aborting!` and **still exited
+   0**, so the store rendered a completed transaction over an update that
+   never happened. `xbps-install -Syu -y` fixes it. `argv1` stays `-Syu` —
+   the polkit policy annotates `exec.argv1="-Syu"` and pkexec matches on it,
+   so a combined `-Suy` would fall through to the generic action.
+2. **Installs and updates showed no progress.** The helper now drains the
+   child's stdout/stderr on their own threads and feeds a phase-weighted
+   tracker, so the transaction bar moves like the flatpak backend's does.
+
+### Detail
+
+- `run_privileged()` takes an `FnMut(f32)` progress sink and `pump()`es both
+  streams; the output is still **collected, never forwarded** to the store's
+  log — forwarding it made Discover-style front ends raise a spurious
+  "there was an issue" sheet for a successful transaction.
+- Progress is phase-weighted and monotonic: prepare `1`, download `1–40` by
+  bytes (`humanize_to_bytes` on xbps' `NNKB`/`NNMB` sizes), verify `40`,
+  unpack `40–85` by package count, configure `85–99`, success `100`; the
+  store divides by 100, the same `0..1` scale flatpak uses.
+- Pure removals print no `[*]` headers, so the `Phase::Prepare` arm reports
+  `1 + 98 × removed/planned_removals`; both of xbps' success wordings
+  (`installed ... successfully` and ``Removed `pkg' successfully``) are
+  matched.
+- Known granularity limit (xbps upstream, not this backend):
+  `xbps-install.real` imports `fflush` but neither `setvbuf` nor
+  `setlinebuf`, so only the download callback flushes per line
+  (`fetch_cb.c`). Everything else is buffered 4 KiB when stdout is a pipe,
+  measured as 52 consecutive `unpacking`/`configuring` lines arriving inside
+  21 ms. The download leg is therefore smooth and unpack/configure step
+  coarsely — the bar stays faithful, it just cannot show lines xbps has not
+  flushed. A pty would smooth it, but that belongs in
+  `/usr/local/sbin/void-xbps-snap` (pkexec matches the store's spawn line
+  against `exec.path`), so it is documented rather than implemented.
+
+### Verification (live, this box)
+
+- A 13-update system update: bar to 100 %, `xbps-install -nSu` clean
+  afterwards, snapper pre/post pair taken (`#49`/`#50`), and all four kernel
+  `vmlinuz`/`initramfs` pairs on the ESP md5-identical to `/boot`.
+- `libreoffice` (152 packages, ~483 MB): bar 1 → 2 → 5 → 7 → 8 → 18 → … → 36
+  through the download leg, then 42 (seven packages unpacked), 88 (configure
+  leg), 93, done. Final state 19 `libreoffice*` packages installed, nothing
+  pending, no error in the store log.
+- `vlc`: 1 → 2 → 40 → 100 %; `sl` install and remove through the shim
+  harness (28 checks) still pass.
+- Failure path unchanged in shape: a killed child surfaces
+  `operation N failed:` plus the tail of the collected output.
+
+### Served repository (root)
+
+- `cosmic-store-1.11.0_8` added (`1.11.0_1` keeps serving as rollback, like
+  every earlier build; the index lists only the newest).
+- `x86_64-repodata` regenerated and **re-signed** with the unchanged key
+  (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
+  The index now carries 66 builds; every one of the 32 templates still
+  resolves to its own `version_revision`.
+- The encrypted signing PEM cannot be read by `xbps-rindex` on a pipe: it
+  must be decrypted first, and the decrypted copy is shredded immediately
+  after signing.
+
 ## epoch-1.11.0-r2 — 2026-10-26
 
 Parity release: the served index is brought back in line with the templates.
