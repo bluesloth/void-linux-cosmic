@@ -88,6 +88,49 @@ before r6 was cut.
 `epoch-1.11.0-r6` is the corrected publish. r5 stays where it is: a published
 tag is never moved.
 
+### Verification (live, this box)
+
+`cosmic-store-1.11.0_10` was installed **from the served repository** (not from
+the build tree), so the served bytes have a client-side proof: RSA signature
+verified, origin recorded as the store URL, `filename-sha256 43476bde…`, and
+the installed policy `68d0e38b…`. `pkaction` reports all three actions
+`auth_admin` with `exec.path` → `/usr/local/sbin/void-xbps-snap` on install and
+update and `/usr/bin/xbps-remove` on remove — the load-bearing check for the
+XML, since polkit rejects a malformed policy file outright and the actions then
+disappear.
+
+The fix was then driven through the store's own UI, because `pkaction` only
+shows what the policy *says*; the prompt shows which action polkit *matched*.
+Installing a package produced "Authentication is required to install software"
+— this policy's `<message>` for `…run-cosmic-store-xbps-install`, where the
+pre-revision-10 policy fell through to the generic
+`org.freedesktop.policykit.exec` and read "…run
+/usr/local/sbin/void-xbps-snap as the super user". Removing it produced
+"…to remove software", i.e. `…run-cosmic-store-xbps-remove`, confirming the
+deliberate half of the fix (`/usr/bin/xbps-remove` needs no wrapper path).
+
+A 43-package transaction (VLC plus 42 dependencies) was also installed through
+the UI: the progress bar stayed monotonic through the download leg, reached
+100 %, and the transaction completed with no error sheet. That is the shape the
+phase-weighted tracker was built for, and it behaves as documented — the
+granularity limit is xbps buffering its `unpacking`/`configuring` lines, and
+those arrive in a leg that is over in milliseconds. A flatpak install from the
+same UI was clean, which is the control: that backend is upstream and untouched
+here.
+
+Uninstalling it through the same UI confirmed the recursive remove. The shipped
+argv is `-y -R --`, and `-R` is load-bearing: a plain `xbps-remove` takes only
+the named package and leaves the whole dependency set behind as orphans (an
+earlier measurement on this box had one `vlc` removal leave 59 of them). After
+the UI uninstall the package count returned to its exact pre-install figure
+(799) and `xbps-remove -n -o` reported **no orphans at all**, so the closure is
+cleaned rather than accumulated. A single-package removal (`cowsay`) could not
+show this — it has no dependencies.
+
+Install and remove take **no** snapper pair, by design: `void-xbps-snap`
+snapshots on `-S`/`-S*`/`-u` only, and a store install/remove spawns a bare
+`-y -- <pkg>`. Only the update action (`-Syu -y`) snapshots.
+
 ## epoch-1.11.0-r4 — 2026-10-30
 
 Cosmetic store release: a helper killed by a signal now says so. Only
