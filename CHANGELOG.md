@@ -70,6 +70,24 @@ lookup falls back to the same generic prompt as before.
 - `x86_64-repodata` regenerated and **re-signed** with the unchanged key
   (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
 
+### Release history: r5 → r6
+
+`epoch-1.11.0-r5` shipped the `_10` package but **not** a new index: the served
+`x86_64-repodata` stayed byte-identical to r4's and kept advertising
+`cosmic-store-1.11.0_9`, so a client installing from r5 still received rev 9.
+
+`tools/publish.sh` built the index with `xbps-rindex -f -a` over a lexically
+sorted file list, and that mode is last-wins per package name. A stage holding
+`_1 _10 _2 _8 _9` therefore added `_10` first and `_9` last, and `_9` won.
+Single-digit revisions had always happened to sort in build order, so the trap
+first appeared at `_10`. The script now adds the **newest** build of each
+package name (compared with `xbps-uhelper cmpver`) and prints a line whenever
+that differs from the lexical choice — which is what flagged the r5 index
+before r6 was cut.
+
+`epoch-1.11.0-r6` is the corrected publish. r5 stays where it is: a published
+tag is never moved.
+
 ## epoch-1.11.0-r4 — 2026-10-30
 
 Cosmetic store release: a helper killed by a signal now says so. Only

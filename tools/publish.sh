@@ -14,6 +14,8 @@
 #
 # `--from DIR` must be the complete, already-signed package set for the repo
 # (all the *.x86_64.xbps you intend to serve, plus a fresh <arch>-repodata).
+# Superseded builds may stay in that directory: the index always advertises
+# the newest build of each package name (see "the index add list" below).
 # `--build` runs tools/build-and-stage.sh first and stages what it produced.
 #
 # Options:
@@ -92,6 +94,47 @@ pkgs=$(find "$from" -maxdepth 1 -name "*.$arch.xbps" -print 2>/dev/null | sort)
 [ -n "$pkgs" ] || die "no *.$arch.xbps in $from"
 npkg=$(printf '%s\n' "$pkgs" | wc -l | tr -d ' ')
 
+# --- the index add list -----------------------------------------------------
+# xbps-rindex -a is LAST-WINS for a given pkgname and $pkgs is lexically
+# sorted, so a stage holding both cosmic-store-1.11.0_9 and -1.11.0_10 adds
+# _10 first and _9 last: the index then advertises _9 while the repo serves
+# _10. epoch-1.11.0-r5 published exactly that (single-digit revisions had
+# always happened to sort in build order, so the trap only appeared at _10).
+# The index is keyed by pkgname and only ever advertises ONE build per name,
+# so add the NEWEST build of each name. Superseded files still get copied to
+# the repo root below (build numbers are not pruned) — they simply stay out
+# of the index, as they always have.
+idx_names=""
+for f in $pkgs; do
+    b=${f##*/}
+    b=${b%."$arch".xbps}
+    n=${b%-*}
+    case " $idx_names " in *" $n "*) ;; *) idx_names="$idx_names $n" ;; esac
+done
+idx_pkgs=""
+idx_note=""
+for n in $idx_names; do
+    best=""; bestver=""; last=""
+    for f in $pkgs; do
+        b=${f##*/}
+        b=${b%."$arch".xbps}
+        [ "${b%-*}" = "$n" ] || continue
+        last=$f
+        v=${b##*-}
+        if [ -z "$best" ]; then best=$f; bestver=$v; continue; fi
+        rc=0
+        xbps-uhelper cmpver "$v" "$bestver" >/dev/null 2>&1 || rc=$?
+        if [ "$rc" -eq 1 ]; then best=$f; bestver=$v; fi
+    done
+    [ -n "$best" ] || continue
+    idx_pkgs="$idx_pkgs $best"
+    if [ "$best" != "$last" ]; then
+        idx_note="$idx_note
+   index: $n -> ${best##*/} (lexical order would have picked ${last##*/})"
+    fi
+done
+[ -n "$idx_pkgs" ] || die "could not resolve any package for the index"
+
 # --- resolve the next release tag (counting only tags on the remote) --------
 if [ -z "$tag" ]; then
     base="epoch-$epoch"
@@ -129,9 +172,12 @@ if [ -n "$privkey" ]; then
     if [ "$dry" = 1 ]; then
         printf '   would sign, regenerate and sign the %s index\n' "$arch"
     else
-        xbps-rindex -f -a $pkgs >/dev/null
+        printf 'regenerating the %s index from %s newest build(s)\n' \
+            "$arch" "$(printf '%s\n' $idx_names | wc -l | tr -d ' ')"
+        xbps-rindex -f -a $idx_pkgs >/dev/null
         xbps-rindex -s --privkey "$privkey" --signedby "$signedby" "$from" >/dev/null
     fi
+    [ -z "$idx_note" ] || printf '%s\n' "$idx_note"
 else
     printf 'no --privkey: expecting pre-signed packages and a signed index\n'
 fi
