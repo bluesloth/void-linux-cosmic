@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop.org//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  exec.path is the path pkexec CANONICALISES before it looks up an action
+  (pkexec calls realpath()), not the path this store spawns. On every
+  installer-provisioned Void box /usr/bin/xbps-install is a symlink to
+  /usr/local/sbin/void-xbps-snap (the snapper pre/post wrapper), so the
+  install and update actions annotate the wrapper. Annotating the symlink
+  could never match there: lookup fell through to the generic
+  org.freedesktop.policykit.exec action, the user saw pkexec's raw-argv
+  wording instead of this store's message, and any per-action rules.d
+  policy keyed on these action ids was inert.
+  remove keeps /usr/bin/xbps-remove: the wrapper shadows xbps-install only,
+  so that path is already canonical. On a stock Void box (no shadow) the
+  canonical path of xbps-install is the real binary, nothing matches, and
+  lookup falls back to the same generic prompt as before; a wrong path
+  here can only change the wording, never what is authorised, because every
+  action below stays auth_admin and the wrapper passes argv through
+  unchanged.
+-->
 <policyconfig>
   <vendor>COSMIC Store</vendor>
   <vendor_url>https://github.com/pop-os/cosmic-store</vendor_url>
@@ -12,7 +30,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/void-xbps-snap</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">-y</annotate>
   </action>
   <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-remove">
@@ -34,7 +52,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/void-xbps-snap</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">-Syu</annotate>
   </action>
 </policyconfig>

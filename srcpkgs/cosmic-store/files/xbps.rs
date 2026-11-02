@@ -14,8 +14,10 @@
 //! no cache-invalidation bug to get wrong. A full rebuild costs ~0.4 s.
 //!
 //! Privileged operations go through `pkexec` with a dedicated polkit action
-//! (`org.freedesktop.policykit.pkexec.cosmic-store.xbps.*`, `auth_admin`,
-//! see the carried `.policy` file). House rule: never emit a bare `-Sy` /
+//! (`org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-{install,remove,
+//! update}`, `auth_admin`, see the carried `.policy` file -- note the ids do
+//! NOT match the policy FILE name, which is why grepping for one will miss
+//! the other). House rule: never emit a bare `-Sy` /
 //! `-Syy` -- OctoXBPS ships a NOPASS polkit action keyed on `argv1 == -Sy`,
 //! so a bare sync would be passwordless. We use `-y` for transactions,
 //! `-R` for removals (so dependencies are not orphaned) and `-Syu` for the
@@ -41,17 +43,30 @@ use crate::{
 const PKEXEC: &str = "pkexec";
 /// Absolute path to `xbps-install`.
 ///
-/// The absolute path is load-bearing: pkexec matches a policy action's
-/// `org.freedesktop.policykit.exec.path` annotation against the path it
-/// actually resolves and executes. A bare name is resolved through PATH,
-/// and on this box `/usr/sbin` precedes `/usr/bin` in the environment the
-/// store inherits, so `pkexec xbps-install` becomes
-/// `/usr/sbin/xbps-install` — which no action is annotated for. pkexec then
-/// silently falls back to its generic `org.freedesktop.policykit.exec`
-/// action and this backend's dedicated policy is never consulted (the dialog
-/// asks for `/usr/sbin/xbps-install` with pkexec's stock wording).
+/// The absolute path is load-bearing: a bare name is resolved through PATH,
+/// and `/usr/sbin` precedes `/usr/bin` in the environment the store inherits,
+/// so `pkexec xbps-install` would become `/usr/sbin/xbps-install`.
+///
+/// Pinning `/usr/bin/xbps-install` is nevertheless NOT the path pkexec ends up
+/// matching, on the boxes this project provisions. pkexec canonicalises the
+/// program with `realpath()` before it looks an action up, and the installer
+/// shadows both `/usr/bin/xbps-install` and `/usr/sbin/xbps-install` with
+/// symlinks to `/usr/local/sbin/void-xbps-snap` (the snapper pre/post
+/// wrapper). The canonical path there is therefore
+/// `/usr/local/sbin/void-xbps-snap`, which is what the `.policy` annotates for
+/// the install and update actions. The path we spawn still matters (it decides
+/// which binary runs); the path the policy names is the canonicalised one.
+///
+/// A mismatch is not a security hole -- every action stays `auth_admin` and
+/// the wrapper passes argv through unchanged -- but it does make the store's
+/// dedicated action unreachable: pkexec silently falls back to its generic
+/// `org.freedesktop.policykit.exec` action, the dialog shows pkexec's stock
+/// wording instead of this store's message, and per-action rules.d policy
+/// keyed on the ids above is inert.
 const XBPS_INSTALL: &str = "/usr/bin/xbps-install";
-/// Absolute path to `xbps-remove` (same reasoning as [`XBPS_INSTALL`]).
+/// Absolute path to `xbps-remove` (same reasoning as [`XBPS_INSTALL`], except
+/// that the wrapper shadows `xbps-install` only -- `/usr/bin/xbps-remove` is a
+/// real binary, so it is also the canonical path its action annotates).
 const XBPS_REMOVE: &str = "/usr/bin/xbps-remove";
 /// Icon used for synthesized packages until a real one can be resolved.
 const STOCK_ICON: &str = "package-x-generic";

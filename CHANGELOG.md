@@ -25,6 +25,51 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+Store release: the dedicated polkit action is reachable again on every box this
+project provisions. Only `cosmic-store` is re-cut — the other 31 packages are
+byte-identical to `epoch-1.11.0-r4`.
+
+The store ships three polkit actions
+(`org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-{install,remove,update}`,
+all `auth_admin`), each annotated with the `exec.path` it is meant to match.
+pkexec does not compare that annotation against the path the caller spawns: it
+canonicalises the program with `realpath()` first and looks the action up by
+the result. On an installer-provisioned Void box `/usr/bin/xbps-install` and
+`/usr/sbin/xbps-install` are both symlinks to `/usr/local/sbin/void-xbps-snap`
+(the snapper pre/post wrapper, `[PKG-SNAP-*]`), so the canonical path is the
+wrapper and the `/usr/bin/xbps-install` annotation could never match. Every
+install and every system update therefore fell through to pkexec's generic
+`org.freedesktop.policykit.exec` action: the dialog showed pkexec's stock argv
+wording instead of this store's message, and any per-action rules.d policy
+keyed on these ids was inert.
+
+The install and update actions now annotate
+`/usr/local/sbin/void-xbps-snap`. `remove` keeps `/usr/bin/xbps-remove`: the
+wrapper shadows `xbps-install` only, so that path is already canonical. Nothing
+about what is authorised changes — all three actions stay `auth_admin`, the
+wrapper passes argv through unchanged, and on a stock Void box (no shadow) the
+canonical path of `xbps-install` is the real binary, nothing matches, and
+lookup falls back to the same generic prompt as before.
+
+### Detail
+
+- Policy file `org.freedesktop.policykit.pkexec.cosmic-store.xbps.policy`
+  sha256 `68d0e38b…` (was `39e2aaf2…`). The FILE name still does not match the
+  ACTION ids, which is why a filename-based grep for them finds nothing.
+- `src/backend/xbps.rs` gains a comment block explaining the canonicalisation
+  trap, and its module docs now name the real action ids
+  (`…pkexec.run-cosmic-store-xbps-*`) instead of a stale `…cosmic-store.xbps.*`
+  form. The spawned paths are unchanged (`/usr/bin/xbps-install`,
+  `/usr/bin/xbps-remove`) and so are the command shapes: `-y --` install,
+  `-y -R --` remove, `-Syu -y` update.
+
+### Served repository (root)
+
+- `cosmic-store-1.11.0_10` added; `1.11.0_9` and every earlier build stay on
+  disk (build numbers are not pruned — the index lists only the newest).
+- `x86_64-repodata` regenerated and **re-signed** with the unchanged key
+  (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
+
 ## epoch-1.11.0-r4 — 2026-10-30
 
 Cosmetic store release: a helper killed by a signal now says so. Only
