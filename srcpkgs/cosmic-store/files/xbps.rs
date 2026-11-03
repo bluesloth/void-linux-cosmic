@@ -13,22 +13,34 @@
 //! packages that disappeared from the repos stop being offered, and there is
 //! no cache-invalidation bug to get wrong. A full rebuild costs ~0.4 s.
 //!
-//! Privileged operations go through `pkexec` with a dedicated polkit action
+//! Privileged operations go through `pkexec` with dedicated polkit actions
 //! (`org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-{install,remove,
-//! update}`, `auth_admin`, see the carried `.policy` file -- note the ids do
-//! NOT match the policy FILE name, which is why grepping for one will miss
-//! the other). House rule: never emit a bare `-Sy` /
-//! `-Syy` -- OctoXBPS ships a NOPASS polkit action keyed on `argv1 == -Sy`,
-//! so a bare sync would be passwordless. We use `-y` for transactions,
-//! `-R` for removals (so dependencies are not orphaned) and `-Syu` for the
-//! system update.
+//! update}`, all `auth_admin`, plus `...-refresh`, see the carried `.policy`
+//! file -- note the ids do NOT match the policy FILE name, which is why
+//! grepping for one will miss the other). House rule: never emit a bare
+//! `-Sy` / `-Syy` -- OctoXBPS ships a NOPASS polkit action keyed on
+//! `argv1 == -Sy`, so a bare sync would be passwordless. We use `-y` for
+//! transactions, `-R` for removals (so dependencies are not orphaned) and
+//! `-Syu` for the system update.
+//!
+//! `...-refresh` is the odd one out, and it exists because of a real defect:
+//! the update list is built from `xbps-install -nSu`, which answers from the
+//! CACHED repodata and never syncs it, and nothing on a stock Void box syncs
+//! it either (there is no xbps cron job). A backend that ignores the
+//! `refresh` argument therefore reports "up to date" forever while the
+//! mirrors move on. `load_caches(refresh)` now runs
+//! [`XBPS_REFRESH`] when `refresh` is true. That helper is package-owned,
+//! takes no arguments and can only ever run `xbps-install -S` against the
+//! unshadowed binary, which is what makes its `allow_active=yes` grant safe:
+//! it is a metadata download, and prompting for a timed background check
+//! would make the store unusable.
 
 use std::{
     collections::HashMap,
     error::Error,
     io::Read,
     os::unix::process::ExitStatusExt,
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     sync::{Arc, mpsc},
     thread,
 };
@@ -68,6 +80,14 @@ const XBPS_INSTALL: &str = "/usr/bin/xbps-install";
 /// that the wrapper shadows `xbps-install` only -- `/usr/bin/xbps-remove` is a
 /// real binary, so it is also the canonical path its action annotates).
 const XBPS_REMOVE: &str = "/usr/bin/xbps-remove";
+/// Package-owned helper that syncs the xbps repodata (`xbps-install -S`).
+///
+/// Spawned through pkexec when the store asks for a refresh. It is the only
+/// privileged thing this backend runs that is not a transaction, and its
+/// polkit action is `allow_active=yes` -- safe only because the helper is a
+/// fixed program that ignores its arguments, so `exec.path` matching cannot
+/// be used to smuggle a package list in. See the carried `.policy` file.
+const XBPS_REFRESH: &str = "/usr/libexec/cosmic-store-refresh";
 /// Icon used for synthesized packages until a real one can be resolved.
 const STOCK_ICON: &str = "package-x-generic";
 /// Prefix that marks a synthesized AppStream id as belonging to xbps.
@@ -130,6 +150,20 @@ fn tail(text: &str, n: usize) -> String {
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(n);
     lines[start..].join("\n")
+}
+
+/// Name an exit status honestly.
+///
+/// `ExitStatus::code()` is `None` when the child died from a signal rather
+/// than exiting (a cancelled transaction, an OOM kill, a crash), and
+/// formatting that as `exit None` hid the one fact worth knowing at exactly
+/// the moment the user needed it.
+fn describe_status(status: &ExitStatus) -> String {
+    match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exit {code}"),
+        (None, Some(sig)) => format!("terminated by signal {sig}"),
+        (None, None) => "terminated abnormally".to_string(),
+    }
 }
 
 /// Parse a size rendered by xbps' `humanize_number` (`9981B`, `36KB`, `918GB`)
@@ -497,21 +531,78 @@ where
         Some(126) => Err("Authentication was cancelled".into()),
         // pkexec: not authorized, or the helper could not be executed.
         Some(127) => Err(format!("pkexec could not run {program}").into()),
-        code => {
-            // `code()` is `None` when the child was killed by a signal (a
-            // cancelled transaction, an OOM kill, a crash): name the signal
-            // instead of reporting the unhelpful `exit None`.
-            let reason = match (code, status.signal()) {
-                (Some(code), _) => format!("exit {code}"),
-                (None, Some(sig)) => format!("terminated by signal {sig}"),
-                (None, None) => "terminated abnormally".to_string(),
-            };
+        _ => {
+            // Prefer naming what actually happened over a bare number: see
+            // `describe_status`.
+            let reason = describe_status(&status);
             if detail.is_empty() {
                 Err(format!("{program} failed ({reason})").into())
             } else {
                 Err(format!("{program} failed ({reason}):\n{detail}").into())
             }
         }
+    }
+}
+
+/// Sync the xbps repodata before an update check.
+///
+/// `load_caches` is called with `refresh = true` when the store's own "check
+/// for updates" runs and on its periodic check, and with `false` on a plain
+/// launch. This backend used to ignore the flag, which meant the update list
+/// was always built from whatever repodata happened to be on disk. Nothing
+/// on a stock Void box refreshes that either -- there is no xbps cron job --
+/// so the store reported "up to date" indefinitely. On this dev box that hid
+/// three real updates (`snapper`, `libsnapper`, `libboost_thread`) whose only
+/// evidence was a 2026-11-01 index versus a newer one on the mirror.
+///
+/// Best-effort by design. A refused authorisation (the action is
+/// `allow_active=yes`, so a locked session is refused), a missing helper or
+/// an unreachable mirror all just leave the existing repodata in place.
+/// Propagating an error from here would abort the whole cache load, and the
+/// store would come up empty -- a far worse failure than a stale update list.
+fn refresh_index() {
+    let output = Command::new(PKEXEC)
+        .arg(XBPS_REFRESH)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+
+    let output = match output {
+        Ok(output) => output,
+        Err(err) => {
+            log::warn!("xbps: could not run the repodata refresh: {err}");
+            return;
+        }
+    };
+
+    if output.status.success() {
+        log::info!("xbps: repodata refreshed");
+        return;
+    }
+
+    // The helper reports a throttled skip with EX_TEMPFAIL, so an hourly
+    // periodic check does not read as a sync that never happened.
+    if output.status.code() == Some(75) {
+        log::info!("xbps: repodata refresh skipped, the index was synced recently");
+        return;
+    }
+
+    // pkexec's two reserved statuses mean the helper never ran, which is not
+    // the same thing as a sync failure and should not be logged as one.
+    let reason = match output.status.code() {
+        Some(126) => "authentication was cancelled".to_string(),
+        Some(127) => "pkexec could not run the helper".to_string(),
+        _ => describe_status(&output.status),
+    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = tail(&stderr, 5);
+    if detail.is_empty() {
+        log::warn!("xbps: repodata refresh failed ({reason}), keeping the cached index");
+    } else {
+        log::warn!(
+            "xbps: repodata refresh failed ({reason}), keeping the cached index: {detail}"
+        );
     }
 }
 
@@ -652,7 +743,13 @@ impl Xbps {
 }
 
 impl Backend for Xbps {
-    fn load_caches(&mut self, _refresh: bool) -> Result<(), Box<dyn Error>> {
+    fn load_caches(&mut self, refresh: bool) -> Result<(), Box<dyn Error>> {
+        // `refresh` is true when the store's "check for updates" action or
+        // its periodic check runs. Honour it -- silently dropping it is what
+        // made the store blind to real updates; see `refresh_index`.
+        if refresh {
+            refresh_index();
+        }
         // Deliberately does not touch the bitcode appstream cache: the
         // synthesized entries are rebuilt from the xbps CLI every launch.
         self.synthesize_apps();

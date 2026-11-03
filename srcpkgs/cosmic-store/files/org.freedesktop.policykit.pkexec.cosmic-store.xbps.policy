@@ -14,9 +14,25 @@
   so that path is already canonical. On a stock Void box (no shadow) the
   canonical path of xbps-install is the real binary, nothing matches, and
   lookup falls back to the same generic prompt as before; a wrong path
-  here can only change the wording, never what is authorised, because every
-  action below stays auth_admin and the wrapper passes argv through
-  unchanged.
+  here can only change the wording, never what is authorised, because the
+  three transaction actions below stay auth_admin and the wrapper passes
+  argv through unchanged.
+
+  The fourth action, refresh, is deliberately NOT auth_admin. The store's
+  update list comes from `xbps-install -nSu`, which answers from the cached
+  repodata, so the store must sync that index before it can see updates. A
+  password prompt on a background check that repeats every hour would make
+  the feature unusable, so this one is allow_active=yes. Two things keep
+  that grant narrow:
+    * it is annotated on /usr/libexec/cosmic-store-refresh, a package-owned
+      helper that takes no arguments and hardcodes `xbps-install -S`. It
+      cannot install, remove or upgrade anything. Annotating argv1="-S" on
+      xbps-install itself would have been a hole: pkexec matches only the
+      first argument, so `pkexec xbps-install.real -S -y` followed by any
+      package list would have run a full transaction with no password.
+    * allow_any and allow_inactive are `no`, so a locked or non-active
+      session cannot trigger it. A refused refresh is harmless: the store
+      keeps whatever repodata it already has.
 -->
 <policyconfig>
   <vendor>COSMIC Store</vendor>
@@ -54,5 +70,15 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/void-xbps-snap</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">-Syu</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-refresh">
+    <description>Refresh the package index with COSMIC Store</description>
+    <message>Authentication is required to refresh the software index</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cosmic-store-refresh</annotate>
   </action>
 </policyconfig>

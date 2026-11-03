@@ -25,6 +25,159 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+Store release: the store can finally see updates. Only `cosmic-store` is
+re-cut.
+
+### The defect
+
+cosmic-store builds its update list from `xbps-install -nSu`, which answers
+from the **cached** repodata and never syncs it. Upstream asks the backends for
+a refresh — `update.rs` and `main.rs` call `backends(&locale, refresh = true)`
+on "check for updates", on the periodic check, and after a repository change —
+and `backend/mod.rs` threads the flag into `load_caches(refresh)`. This
+backend's implementation was `fn load_caches(&mut self, _refresh: bool)` and
+dropped it on the floor, and nothing else on a stock Void box syncs either
+(there is no `xbps` cron job). A backend that ignores the flag therefore
+reports "up to date" indefinitely while the mirrors move on.
+
+That is what happened here: the cached index was two days old, 341 of its
+package entries disagreed with the mirror's, and exactly three of those are
+installed on this box — `snapper-0.13.1_2`, `libsnapper-0.13.1_2`,
+`libboost_thread-1.91.0_1` — none of which the store ever offered. The
+evidence is non-mutating (`xbps-install -un` against a freshly downloaded index
+lists precisely those three) and is preserved with the release.
+
+### The fix
+
+`load_caches(refresh)` now calls the new function `refresh_index()` when
+`refresh` is true, then builds the cache from whatever index is on disk.
+
+`refresh_index()` runs the new package-owned helper
+`/usr/libexec/cosmic-store-refresh` through `pkexec`. The helper is where the
+two hazards live:
+
+- **It must not snapshot.** On an installer-provisioned box `/usr/bin/xbps-install`
+  and `/usr/sbin/xbps-install` are both symlinks to `/usr/local/sbin/void-xbps-snap`,
+  whose `_should_snap()` matches a bare `-S`. A sync through the wrapper would
+  take a snapper pair on every update check. The helper resolves the
+  unshadowed `/usr/bin/xbps-install.real` the installer leaves behind, refusing
+  any candidate that canonicalises to the wrapper, and falls back to a PATH
+  lookup for a stock Void box.
+- **It must be cheap.** The store re-checks every
+  `config.update_check_interval_minutes` (default 60, and the user can set it
+  to 1), so the helper throttles itself for ten minutes through
+  `/run/cosmic-store-refresh.stamp` — deliberately on `/run`, so a reboot
+  clears it.
+
+It runs `-S` and only `-S`: fetching the index must never begin an upgrade, and
+`-Syu` is a transaction that belongs behind the existing `auth_admin` update
+action. stdin is `/dev/null`, so a "import this repository key?" question (only
+ever asked for a repository nobody has trusted yet) reads EOF and declines
+rather than silently importing a key from a background check.
+
+The refresh is **best-effort**. A refused authorisation, a missing helper or an
+unreachable mirror logs a warning and keeps the existing repodata. Propagating
+an error would abort `load_caches` and leave the store empty, which is a much
+worse failure than a stale update list.
+
+### Reporting: refreshed, skipped, or failed
+
+The helper distinguishes three outcomes so the log never claims work it did not
+do: **0** the repositories were synced, **75** (`EX_TEMPFAIL`) nothing was done
+because a sync happened inside the throttle window, **anything else** the sync
+failed and the cached index stands.
+
+The first cut of this change returned 0 for a throttled skip as well, and the
+live proof caught the consequence immediately: with the interval set to one
+minute, the second periodic tick logged `xbps: repodata refreshed` twenty
+milliseconds after the first, having fetched nothing. A skip now logs
+`xbps: repodata refresh skipped, the index was synced recently`; only a real
+sync reports `refreshed`, and a failure still carries the reason
+(`authentication was cancelled`, `pkexec could not run the helper`, or the exit
+status) plus the tail of the output.
+
+Waiting on a network fetch inside `load_caches` is safe here because
+`backend/mod.rs` runs it through `tokio::task::spawn_blocking`, on the blocking
+pool and not the UI thread; the store shows its "updating backends" state while
+it happens.
+
+### A fourth polkit action, deliberately not `auth_admin`
+
+`org.freedesktop.policykit.pkexec.run-cosmic-store-xbps-refresh` is
+`allow_active=yes` (`allow_any` and `allow_inactive` are `no`). A password
+prompt on an hourly background check would make the feature unusable, so this
+one grant is silent — and it is safe only because of where it is annotated:
+
+- it is annotated on `/usr/libexec/cosmic-store-refresh`, a package-owned
+  helper that ignores its arguments and hardcodes `xbps-install -S`. It cannot
+  install, remove or upgrade anything.
+- annotating `argv1 = -S` on `xbps-install` itself was rejected as a hole:
+  pkexec matches only the **first** argument, so
+  `pkexec xbps-install.real -S -y` followed by any package list would have run
+  a full transaction with no password at all.
+
+The three transaction actions stay `auth_admin` and unchanged.
+
+### Detail
+
+- New file `srcpkgs/cosmic-store/files/cosmic-store-refresh` (sha256
+  `64d55f65…`, 4524 B), installed `0755` to `/usr/libexec/` by `do_install()`.
+- Policy file gains the fourth action (sha256 `060aa28b…`, was `68d0e38b…`).
+  The FILE name still does not match the ACTION ids, which is why a
+  filename-based grep for them finds nothing.
+- `srcpkgs/cosmic-store/files/xbps.rs` (sha256 `7d2929de…`, installed as
+  `src/backend/xbps.rs`): `XBPS_REFRESH`, `refresh_index()`, `load_caches`
+  honouring its argument, the `75` skip branch, and the exit-status wording
+  factored into `describe_status()` so both call sites name a signal instead of
+  `exit None`. Spawned paths and command shapes for the three transactions are
+  unchanged (`-y --`, `-y -R --`, `-Syu -y`).
+- Template `revision=10 → 11`.
+- Package `cosmic-store-1.11.0_11.x86_64.xbps`, 15,183,935 B, sha256
+  `1fcac757…`; `/usr/bin/cosmic-store` sha256 `b20d3583…` (`_10` was
+  `917e9d1a…`).
+
+### Served repository (root)
+
+- `cosmic-store-1.11.0_11` added; `_10` and every earlier build stay on disk
+  (build numbers are not pruned — the index lists only the newest).
+- `x86_64-repodata` regenerated and **re-signed** with the unchanged key
+  (DER sha256 `83ffd154…`), so the installer's fingerprint pin still matches.
+
+### Verified
+
+- The helper directly, through `pkexec`, with no authentication prompt (it is
+  `allow_active=yes` and this shell's session is active): five repositories
+  synced, exit 0, stamp written; a second call inside the ten-minute window
+  exits 75 in 19 ms and touches nothing.
+- The store's own path, with `update_check_interval_minutes = 1` and
+  `RUST_LOG=info`: the first periodic tick logged `xbps: repodata refreshed`
+  after 5.6 s of work and replaced the cached index (new digest, new size);
+  the following tick logged `xbps: repodata refresh skipped, the index was
+  synced recently` twenty milliseconds later; a tick that landed mid-transaction
+  logged `cannot check for updates, operations are in progress`.
+- The hand-off in the real GUI: "Install all" prompted for authentication (the
+  `update` action is `auth_admin`), ran `-Syu -y` through
+  `/usr/local/sbin/void-xbps-snap`, and took snapper pair **#18 pre / #19 post**
+  (`xbps system update`). `snapper` and `libsnapper` moved to `0.13.1_3`,
+  `libboost_thread` to `1.92.0_1`, `xbps-install -nSu` is empty and the store's
+  update list cleared. The refresh helper deliberately does not snapshot, so
+  that pair is the only one in the window.
+- Negative control: the previously installed `_10` binary contains none of
+  `repodata refreshed`, `refresh skipped`, `/usr/libexec/cosmic-store-refresh`,
+  while `_11` contains all three.
+
+### Known limits
+
+- Only `cosmic-store` honours the refresh flag after this change. KDE Discover
+  and GNOME Software derive their update lists from `-nSu` the same way and
+  still never sync, so the stale-index class of bug remains there. Both would
+  need the same treatment (and, in Discover's case, a helper plus an action).
+- The refresh is a metadata download only. It cannot repair a cached index that
+  a failed fetch left truncated; `xbps-install.real -S` by hand is still the
+  recovery for that.
+
+## epoch-1.11.0-r6 — 2026-11-01
+
 Store release: the dedicated polkit action is reachable again on every box this
 project provisions. Only `cosmic-store` is re-cut — the other 31 packages are
 byte-identical to `epoch-1.11.0-r4`.
