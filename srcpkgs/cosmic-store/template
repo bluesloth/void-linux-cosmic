@@ -1,9 +1,17 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=11
+revision=12
 #
-# Carried patch: patches/fix-system-appstream-refresh.patch
+# Carried patches (see docs/UPSTREAM.md "Carried patches"):
+#   patches/add-update-notifier.patch
+#     Background update notification (`cosmic-store --notifier`, autostarted
+#     from /etc/xdg/autostart): adds `--notifier`/`--updates` to the CLI, the
+#     notifier module declaration, and the notification strings. The module
+#     body itself is copied from files/notifier.rs. Re-check on the next epoch
+#     bump: if upstream grows a native update notifier for the xbps backend,
+#     drop both halves.
+#   patches/fix-system-appstream-refresh.patch
 #   AppStream refresh for system flatpak remotes is broken upstream
 #   (passes the "<name> (system)" cache source id as a flatpak remote
 #   name; f"Remote \"... (system)\" not found"). Confirmed still needed
@@ -29,6 +37,8 @@ do_patch() {
 	cp ${FILESDIR}/Cargo.toml ${wrksrc}/Cargo.toml
 	cp ${FILESDIR}/mod.rs ${wrksrc}/src/backend/mod.rs
 	cp ${FILESDIR}/xbps.rs ${wrksrc}/src/backend/xbps.rs
+	# Body of the `notifier` module declared by patches/add-update-notifier.patch.
+	cp ${FILESDIR}/notifier.rs ${wrksrc}/src/notifier.rs
 }
 
 do_install() {
@@ -42,4 +52,9 @@ do_install() {
 	# safe because this script takes no arguments and can only run
 	# `xbps-install -S`; see the .policy header.
 	install -Dm755 ${FILESDIR}/cosmic-store-refresh ${DESTDIR}/usr/libexec/cosmic-store-refresh
+	# Session-login notifier. It runs `cosmic-store --notifier`, which takes the
+	# early branch in `main()` before single-instance, so it cannot swallow a
+	# real store launch. NoDisplay: it is an autostart entry, not a menu item.
+	install -Dm644 ${FILESDIR}/cosmic-store-notifier.desktop \
+		${DESTDIR}/etc/xdg/autostart/cosmic-store-notifier.desktop
 }

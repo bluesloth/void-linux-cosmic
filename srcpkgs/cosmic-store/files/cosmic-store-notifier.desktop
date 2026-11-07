@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=COSMIC Store Update Notifier
+Comment=Check for xbps updates in the background
+Exec=cosmic-store --notifier
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-UsesNotifications=true

@@ -1,0 +1,106 @@
+diff --git a/i18n/en/cosmic_store.ftl b/i18n/en/cosmic_store.ftl
+index bf7f822..997599c 100644
+--- a/i18n/en/cosmic_store.ftl
++++ b/i18n/en/cosmic_store.ftl
+@@ -156,3 +156,11 @@ theme = Theme
+ match-desktop = Match desktop
+ dark = Dark
+ light = Light
++
++### Updates notification
++update-notifier-summary = { $count ->
++    [one] { $count } update available
++   *[other] { $count } updates available
++}
++update-notifier-more = { $packages } and { $count } more
++update-notifier-action = Review updates
+diff --git a/src/main.rs b/src/main.rs
+index 2d01d13..e01ae15 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -89,6 +89,9 @@ mod explore;
+ use nav::{Category, CategoryIndex, NavPage, ScrollContext};
+ mod nav;
+ 
++#[cfg(feature = "notify")]
++pub mod notifier;
++
+ use search::{CachedExploreResults, GridMetrics, SearchResult};
+ mod search;
+ 
+@@ -115,6 +118,12 @@ struct Cli {
+     desktop_id: Option<String>,
+     #[arg(long)]
+     startup_notification_id: Option<String>,
++    /// Run the background update notifier instead of the store window
++    #[arg(long)]
++    notifier: bool,
++    /// Open the store on the Updates page
++    #[arg(long)]
++    updates: bool,
+ }
+ 
+ /// Runs application with these settings
+@@ -127,6 +136,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+ 
+     let cli = Cli::parse();
+ 
++    // [UPDATE-NOTIFIER] The background notifier is a separate process: the store
++    // exits when its window closes, and autostarting a window would be wrong. It
++    // must therefore run before single-instance handling (which would otherwise
++    // forward to a running store and swallow the notifier).
++    if cli.notifier {
++        #[cfg(feature = "notify")]
++        {
++            return crate::notifier::run();
++        }
++        #[cfg(not(feature = "notify"))]
++        {
++            return Err("cosmic-store was built without the notify feature".into());
++        }
++    }
++
+     let (config_handler, config) = match cosmic_config::Config::new(App::APP_ID, CONFIG_VERSION) {
+         Ok(config_handler) => {
+             let config = match Config::get_entry(&config_handler) {
+@@ -154,6 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
+         config_handler,
+         config,
+         mode: Mode::Normal,
++        updates: cli.updates,
+     };
+ 
+     if let Some(codec) = flags
+@@ -270,6 +295,7 @@ pub struct Flags {
+     config_handler: Option<cosmic_config::Config>,
+     config: Config,
+     mode: Mode,
++    updates: bool,
+ }
+ 
+ //TODO
+@@ -2126,6 +2152,15 @@ impl Application for App {
+ 
+         let app_themes = vec![fl!("match-desktop"), fl!("dark"), fl!("light")];
+ 
++        // [UPDATE-NOTIFIER] `--updates` opens the store on the Updates page. The
++        // update list itself is fetched when each backend registers (see
++        // `Message::BackendUpdate`), so activating the page is enough.
++        let start_page = if flags.updates {
++            NavPage::Updates
++        } else {
++            NavPage::default()
++        };
++
+         let mut nav_model = widget::nav_bar::Model::default();
+         for &nav_page in NavPage::all() {
+             let id = nav_model
+@@ -2134,7 +2169,7 @@ impl Application for App {
+                 .text(nav_page.title())
+                 .data::<NavPage>(nav_page)
+                 .id();
+-            if nav_page == NavPage::default() {
++            if nav_page == start_page {
+                 //TODO: save last page?
+                 nav_model.activate(id);
+             }

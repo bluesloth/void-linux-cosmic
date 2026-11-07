@@ -82,6 +82,7 @@ Carried patches today:
 
 | package | patch | upstream status when added |
 | --- | --- | --- |
+| cosmic-store | `add-update-notifier.patch` | No upstream update notifier for any native backend: COSMIC has no xbps backend at all (the backend is carried here), and the desktop ships no update indicator, so nothing on a stock box prompts the user when updates are waiting. The patch adds `--notifier`/`--updates` to the CLI, the `notifier` module declaration and the FTL strings; the module body itself is `srcpkgs/cosmic-store/files/notifier.rs`, copied in by the template's `do_patch()`. Everything is `#[cfg(feature = "notify")]`-gated and the flag is already default-on. Drop both halves when upstream grows a native notifier for the xbps backend (or when the xbps backend itself lands upstream). Added against `epoch-1.11.0` (2026-11-07). |
 | cosmic-store | `fix-system-appstream-refresh.patch` | pop-os/cosmic-store `epoch-1.10.0` still passes the `"<name> (system)"` cache source id as a flatpak remote name, so system-remote AppStream can never be fetched on a cold start (`Remote "flathub (system)" not found`). Symptoms reported upstream in issues #216 and #514; #551 (Fedora system remotes not shown) is open and likely the same root cause. Re-checked against `epoch-1.11.0` (2026-10-24): the suffixed id is still passed to `update_appstream_sync()`, so the patch is still required. |
 
 ## Release procedure

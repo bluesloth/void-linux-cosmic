@@ -25,6 +25,127 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 
 ## Unreleased
 
+Store release: the store now tells you when updates exist. Only `cosmic-store`
+is re-cut (revision 11 → 12).
+
+### The defect
+
+After revision 11 the store could *see* updates, but only if you opened it. A
+stock Void box syncs nothing on its own — there is no `xbps` cron job and the
+COSMIC desktop ships no update indicator — so an install could sit on hundreds
+of outdated packages indefinitely without a single prompt. KDE Discover and
+GNOME Software gained exactly this notifier on 2026-11-06
+(`DiscoverNotifier`, `gs-plugin-xbps`'s startup check); the COSMIC store was
+the odd one out.
+
+### The fix
+
+`cosmic-store` now has a second, windowless mode. `--notifier` branches out of
+`main()` right after `Cli::parse()`, **before** the single-instance check, so a
+poller can never swallow a real launch, and runs `crate::notifier::run()` in a
+plain blocking loop — no async runtime, no toolkit, no `WAYLAND_DISPLAY`
+required.
+
+`/etc/xdg/autostart/cosmic-store-notifier.desktop` (`Exec=cosmic-store
+--notifier`, `NoDisplay=true`) starts it with the session.
+
+What the loop does:
+
+- ticks every 60 s, looking at the clock and at the repodata files
+  (`/var/db/xbps/*/x86_64-repodata`, compared by path + mtime + length);
+- probes with `xbps-install -nSu` **unprivileged** — every 60 min
+  (`update_check_interval_minutes`, floored at 5; `0` disables update checking
+  and the notifier exits), and additionally when a repodata file changes,
+  debounced to at most once every 5 min;
+- parses the plain `<pkgver> update <arch> <repo> <size> <dsize>` lines itself
+  (`field[1] == "update"`) instead of reusing the backend's `updates()`, which
+  needs a locale and an AppStream cache and silently drops packages with no
+  `AppInfo`;
+- announces only when the set is non-empty **and** it differs from the last
+  announced set (FNV-1a fingerprint) **or** 24 h have passed since the last
+  announcement, so a persistent update nags once a day rather than every hour;
+- writes `<state>/cosmic-store/update-notifier.state` (`fingerprint=`,
+  `notified_at=`) only after a *successful* desktop notification, and clears
+  it to `0`/`0` when a probe successfully reports nothing — so a set that gets
+  installed elsewhere is not re-announced.
+
+Text is localised through the store's own catalog: `update-notifier-summary`
+(a plural on `$count`), `update-notifier-more` for the overflow beyond three
+package names, and `update-notifier-action = Review updates`.
+
+Clicking the notification runs `cosmic-store --updates`, which is the second
+new flag: `App::init` selects `NavPage::Updates` as the start page instead of
+the default Browse page. No explicit fetch is needed — `Message::BackendUpdate`
+already calls `update_backend_updates()` for every backend, and that path goes
+through `load_caches(refresh = true)`, so opening from the notification also
+syncs the index revision 11 introduced.
+
+### Hazards handled
+
+- **The snapper shadow.** On an installer-provisioned box `/usr/bin/xbps-install`
+  and `/usr/sbin/xbps-install` are both symlinks to
+  `/usr/local/sbin/void-xbps-snap`. The notifier prefers
+  `/usr/bin/xbps-install.real` when it exists and only falls back to
+  `/usr/bin/xbps-install`, so a background poll can never take a snapper
+  snapshot pair. It runs unprivileged, so pkexec's `exec.path` annotations are
+  not in play either.
+- **Being killed.** The probe runs under `timeout 300`; a non-zero exit or a
+  timeout is a probe failure that leaves the state file untouched and retries
+  on the next interval rather than every tick.
+- **Notification threading.** `notify_rust::Notification::show()` runs on a
+  spawned thread that then blocks in `wait_for_action(Timeout::Never)`; only
+  the `show()` result is reported back over an `mpsc` channel, so
+  `NotificationHandle` never has to be `Send` and state is written after the
+  banner actually appeared. `wait_for_action` also fires on `"__closed"`, so
+  only `action == "default"` spawns the store.
+- **Config drift.** The interval is re-read from `cosmic-store`'s config on
+  every tick, so changing it (or setting `0`) takes effect without a restart;
+  an unreadable config falls back to 60.
+
+### Build and verification
+
+- `revision=11 → 12`; `cosmic-store-1.11.0_12` is 15,240,217 B, sha256
+  `6bc565f0dbf706d87d0cdb0e92b846a7c4e3565c9565673ca6bf490b0caf3fec`; the
+  packaged binary is 47,293,536 B, sha256 `3fed574b…` (revision 11's was
+  `b20d3583…`), and the package also carries
+  `etc/xdg/autostart/cosmic-store-notifier.desktop`.
+- Windowless mode proven: `env -u WAYLAND_DISPLAY -u DISPLAY timeout 10
+  cosmic-store --notifier` runs to the timeout (exit 124) rather than dying for
+  want of a display; `cosmic-store --updates` in the same environment dies at
+  the compositor, which is correct for a GUI mode.
+- Single-instance bypass proven: with a GUI store running, a second
+  `cosmic-store --notifier` stayed alive, and `cosmic-store --updates` exited 0
+  after forwarding to the existing window.
+- Parse + notify + state proven with a temporary `xbps-install.real` shim:
+  four synthetic `update` lines produced
+  `fingerprint=17233252979556304251` (independently recomputed from the same
+  sorted pkgvers) and a `notified_at` stamp — so the parse, the plural summary,
+  the overflow line and a successful `show()` all ran; re-running with the same
+  set left the stamp alone; an empty set cleared state to `0`/`0`; a failing
+  prober left it untouched and logged
+  `update-notifier: update probe failed: xbps-install -nSu failed (exit 1)`.
+  The shim was removed and the real `/usr/bin/xbps-install.real` restored
+  (sha256 `1a5a8f6d…`).
+
+### Known limits
+
+- The notifier reads the **cached** repodata, like the sibling stores' notifiers.
+  It cannot sync the index itself — that needs root — so it can lag behind the
+  mirrors until something refreshes: the store's own check (which does sync
+  since revision 11) or `xbps-install -S`. The notification therefore means
+  "the index you have says N updates are waiting"; opening the store from it
+  gets the current one.
+- No notification when the notifier is not running: there is no system service,
+  by design (matching Discover and GNOME Software). It starts with the desktop
+  session and stops with it.
+- Clicking the notification while a store window is already open only focuses
+  that window; libcosmic forwards `subcommand_opt` but not the start page, so
+  it will not jump to Updates.
+- A GUI-initiated system update is still not cancellable (the child runs as
+  root) — unchanged by this release.
+
+## epoch-1.11.0-r7 — 2026-11-02
+
 Store release: the store can finally see updates. Only `cosmic-store` is
 re-cut.
 
