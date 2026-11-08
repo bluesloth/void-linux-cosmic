@@ -23,7 +23,7 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 `docs/UPSTREAM.md` for the full release procedure and the special cases
 (commit-pinned `libcosmic`, `pop-launcher`'s own version, the meta packages).
 
-## Unreleased
+## epoch-1.11.0-r8 — 2026-11-07
 
 Store release: the store now tells you when updates exist. Only `cosmic-store`
 is re-cut (revision 11 → 12).
