@@ -1,0 +1,61 @@
+# Template file for 'cosmic-store-flatpak'
+pkgname=cosmic-store-flatpak
+version=1.11.0
+revision=12
+#
+# Carried patches (see docs/UPSTREAM.md "Carried patches"):
+#   patches/add-update-notifier.patch
+#     Background update notification (`cosmic-store --notifier`, autostarted
+#     from /etc/xdg/autostart): adds `--notifier`/`--updates` to the CLI, the
+#     notifier module declaration, and the notification strings. The module
+#     body itself is copied from files/notifier.rs. Re-check on the next epoch
+#     bump: if upstream grows a native update notifier for the xbps backend,
+#     drop both halves.
+#   patches/fix-system-appstream-refresh.patch
+#   AppStream refresh for system flatpak remotes is broken upstream
+#   (passes the "<name> (system)" cache source id as a flatpak remote
+#   name; f"Remote \"... (system)\" not found"). Confirmed still needed
+#   against epoch-1.10.0. On the next epoch bump, check whether upstream
+#   fixed the update call (or dropped the suffix) BEFORE dropping this
+#   patch -- see docs/UPSTREAM.md "Carried patches".
+archs="x86_64*"
+build_style=cargo
+configure_args="--features xbps,flatpak"
+hostmakedepends="pkg-config just cargo cargo-auditable"
+makedepends="flatpak-devel glib-devel openssl-devel libxkbcommon-devel wayland-devel"
+depends="cosmic-icons flatpak polkit"
+make_check=no
+short_desc="Application store for the COSMIC desktop (with Flatpak support)"
+maintainer="Void Cosmic <noreply@github.com>"
+license="GPL-3.0-only"
+homepage="https://github.com/pop-os/cosmic-store"
+distfiles="https://github.com/pop-os/cosmic-store/archive/refs/tags/epoch-${version}.tar.gz"
+checksum=d8c95307e4a865ab4681a0be86fea98f82fb052ecc7bcea98fad2b8165c34e83
+conflicts="cosmic-store"
+
+do_patch() {
+	# Copy our modified files directly (no patches needed)
+	cp ${FILESDIR}/Cargo.toml ${wrksrc}/Cargo.toml
+	cp ${FILESDIR}/mod.rs ${wrksrc}/src/backend/mod.rs
+	cp ${FILESDIR}/xbps.rs ${wrksrc}/src/backend/xbps.rs
+	# Body of the `notifier` module declared by patches/add-update-notifier.patch.
+	cp ${FILESDIR}/notifier.rs ${wrksrc}/src/notifier.rs
+}
+
+do_install() {
+	just rootdir="${DESTDIR}" cargo-target-dir="target/${RUST_TARGET}" install
+	install -Dm644 ${FILESDIR}/org.freedesktop.policykit.pkexec.cosmic-store.xbps.policy \
+		${DESTDIR}/usr/share/polkit-1/actions/org.freedesktop.policykit.pkexec.cosmic-store.xbps.policy
+	# Repodata sync helper. The backend spawns it through pkexec when the store
+	# asks for a refresh (`load_caches(refresh = true)`), because `xbps-install
+	# -nSu` only ever answers from the cached index and nothing else on a stock
+	# Void box syncs it. Its polkit action is allow_active=yes, which is only
+	# safe because this script takes no arguments and can only run
+	# `xbps-install -S`; see the .policy header.
+	install -Dm755 ${FILESDIR}/cosmic-store-refresh ${DESTDIR}/usr/libexec/cosmic-store-refresh
+	# Session-login notifier. It runs `cosmic-store --notifier`, which takes the
+	# early branch in `main()` before single-instance, so it cannot swallow a
+	# real store launch. NoDisplay: it is an autostart entry, not a menu item.
+	install -Dm644 ${FILESDIR}/cosmic-store-notifier.desktop \
+		${DESTDIR}/etc/xdg/autostart/cosmic-store-notifier.desktop
+}

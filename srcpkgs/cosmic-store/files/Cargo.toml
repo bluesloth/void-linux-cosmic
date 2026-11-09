@@ -67,7 +67,6 @@ xdgen = "0.1"
 default = [
     "dbus-config",
     "desktop-systemd-scope",
-    "flatpak",
     "logind",
     "notify",
     "single-instance",
