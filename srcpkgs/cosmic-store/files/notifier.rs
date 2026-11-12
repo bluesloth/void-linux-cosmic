@@ -241,9 +241,6 @@ fn notify(packages: &[String]) -> Result<(), Box<dyn Error>> {
     let summary = fl!("update-notifier-summary", count = count);
     let body = if count > MAX_BODY_PACKAGES {
         let shown = packages[..MAX_BODY_PACKAGES].join(", ");
-        // The remainder is bound to a typed local first: `i18n-embed-fl` passes
-        // each named argument through `Into<FluentValue>`, and an inline
-        // subtraction leaves `Sub::Output` uninferable (E0284).
         let remaining: usize = count - MAX_BODY_PACKAGES;
         fl!(
             "update-notifier-more",

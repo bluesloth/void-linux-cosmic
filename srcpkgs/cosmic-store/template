@@ -1,7 +1,7 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=12
+revision=13
 #
 # Carried patches (see docs/UPSTREAM.md "Carried patches"):
 #   patches/add-update-notifier.patch
@@ -20,18 +20,17 @@ revision=12
 #   patch -- see docs/UPSTREAM.md "Carried patches".
 archs="x86_64*"
 build_style=cargo
-configure_args="--features xbps"
+configure_args="--features xbps,flatpak"
 hostmakedepends="pkg-config just cargo cargo-auditable"
-makedepends="glib-devel openssl-devel libxkbcommon-devel wayland-devel"
+makedepends="flatpak-devel glib-devel openssl-devel libxkbcommon-devel wayland-devel"
 depends="cosmic-icons polkit"
 make_check=no
-short_desc="Application store for the COSMIC desktop (xbps only)"
+short_desc="Application store for the COSMIC desktop (xbps, optional flatpak)"
 maintainer="Void Cosmic <noreply@github.com>"
 license="GPL-3.0-only"
 homepage="https://github.com/pop-os/cosmic-store"
 distfiles="https://github.com/pop-os/cosmic-store/archive/refs/tags/epoch-${version}.tar.gz"
 checksum=d8c95307e4a865ab4681a0be86fea98f82fb052ecc7bcea98fad2b8165c34e83
-conflicts="cosmic-store-flatpak"
 
 do_patch() {
 	# Copy our modified files directly (no patches needed)
