@@ -1,7 +1,7 @@
 # Template file for 'cosmic-store-flatpak'
 pkgname=cosmic-store-flatpak
 version=1.11.0
-revision=12
+revision=13
 #
 # Carried patches (see docs/UPSTREAM.md "Carried patches"):
 #   patches/add-update-notifier.patch
