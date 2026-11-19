@@ -23,6 +23,42 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 `docs/UPSTREAM.md` for the full release procedure and the special cases
 (commit-pinned `libcosmic`, `pop-launcher`'s own version, the meta packages).
 
+## epoch-1.11.0-r11 — 2026-11-19
+
+Store release: "Manage repositories" now treats a system-wide Flatpak remote
+as active, and can remove it. Only `cosmic-store` is re-cut (revision 13 → 14).
+
+### The defect
+
+The installer provisions Flathub at **system scope**
+(`flatpak remote-add` without `--user`), so it is active for the whole box and
+Flatpak apps are browsable in the store. But the store's Manage repositories
+panel modelled its two recommended sources as **user-scope** remotes and only
+marked one enabled when the *user* backend held a matching cache. With no
+user-scope Flathub, the Flathub row kept offering **Add** even though the
+source was already in use — clicking it just created a redundant user copy.
+
+### The fix
+
+`patches/system-flatpak-remote.patch` extends `sources()` to also inspect the
+`FlatpakSystem` backend (`"<name> (system)"` source ids), marks a matching
+recommended source enabled, and routes its `RepositoryRemove` through the
+`FlatpakSystem` backend. Because `/var/lib/flatpak` is not writable by an
+unprivileged process, that backend now spawns a new package-owned helper,
+`/usr/libexec/cosmic-store-flatpak-remote`, through `pkexec`.
+
+The fifth polkit action,
+`org.freedesktop.policykit.pkexec.run-cosmic-store-flatpak-remote`, is
+`auth_admin` (unlike the promptless `allow_active` refresh action): removing a
+system remote can break Flatpak apps for every user. It annotates the helper
+path and `argv1="remove"` — never a `flatpak` command with caller-chosen
+flags — and the helper itself rejects any verb or remote name outside its
+`flathub`/`cosmic` allowlist. The store still checks for installed apps from
+the remote before calling the helper.
+
+COSMIC Flatpak was never configured, so its **Add** button is unchanged and
+correct.
+
 ## epoch-1.11.0-r8 — 2026-11-07
 
 Store release: the store now tells you when updates exist. Only `cosmic-store`

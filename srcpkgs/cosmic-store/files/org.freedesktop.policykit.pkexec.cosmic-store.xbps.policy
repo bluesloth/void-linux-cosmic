@@ -33,6 +33,16 @@
     * allow_any and allow_inactive are `no`, so a locked or non-active
       session cannot trigger it. A refused refresh is harmless: the store
       keeps whatever repodata it already has.
+
+  The fifth action handles Remove on a system-scope Flatpak remote (Flathub
+  is provisioned system-wide by the installer). That remote lives in
+  /var/lib/flatpak, which the unprivileged store cannot write, so the store
+  spawns a package-owned helper through pkexec instead of calling libflatpak
+  on the system installation. The action is auth_admin, unlike the refresh
+  action, because removing a system remote can break Flatpak apps for every
+  user. It annotates the helper path and argv1="remove", never a `flatpak`
+  command: the helper itself rejects any verb or remote name outside its
+  allowlist (flathub, cosmic), so no caller-chosen flags can reach flatpak.
 -->
 <policyconfig>
   <vendor>COSMIC Store</vendor>
@@ -80,5 +90,16 @@
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cosmic-store-refresh</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-flatpak-remote">
+    <description>Remove a Flatpak repository with COSMIC Store</description>
+    <message>Authentication is required to remove a Flatpak repository</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cosmic-store-flatpak-remote</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">remove</annotate>
   </action>
 </policyconfig>

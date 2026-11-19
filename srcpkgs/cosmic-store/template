@@ -1,9 +1,17 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=13
+revision=14
 #
 # Carried patches (see docs/UPSTREAM.md "Carried patches"):
+#   patches/system-flatpak-remote.patch
+#     Manage repositories only tracked user-scope Flatpak sources, so the
+#     system-wide Flathub the installer provisions kept showing "Add". The
+#     patch detects system-scope caches, marks those sources enabled and
+#     routes their Remove through the FlatpakSystem backend. That backend
+#     spawns files/cosmic-store-flatpak-remote through pkexec (auth_admin)
+#     because /var/lib/flatpak is not writable by the user. The helper body
+#     and its polkit action are installed by do_install().
 #   patches/add-update-notifier.patch
 #     Background update notification (`cosmic-store --notifier`, autostarted
 #     from /etc/xdg/autostart): adds `--notifier`/`--updates` to the CLI, the
@@ -52,6 +60,11 @@ do_install() {
 	# safe because this script takes no arguments and can only run
 	# `xbps-install -S`; see the .policy header.
 	install -Dm755 ${FILESDIR}/cosmic-store-refresh ${DESTDIR}/usr/libexec/cosmic-store-refresh
+	# Root-only helper for removing a system-scope Flatpak remote (the
+	# installer provisions Flathub system-wide). The store spawns it via
+	# pkexec; its action is auth_admin and it re-validates verb + name.
+	install -Dm755 ${FILESDIR}/cosmic-store-flatpak-remote \
+		${DESTDIR}/usr/libexec/cosmic-store-flatpak-remote
 	# Session-login notifier. It runs `cosmic-store --notifier`, which takes the
 	# early branch in `main()` before single-instance, so it cannot swallow a
 	# real store launch. NoDisplay: it is an autostart entry, not a menu item.

@@ -1,0 +1,77 @@
+diff --git a/src/backend/flatpak.rs b/src/backend/flatpak.rs
+index c3dfddc..c3475b5 100644
+--- a/src/backend/flatpak.rs
++++ b/src/backend/flatpak.rs
+@@ -663,7 +663,34 @@ impl Backend for Flatpak {
+                 }
+                 drop(tx);
+                 for rm in rms.iter() {
+-                    inst.remove_remote(&rm.id, Cancellable::NONE)?;
++                    if self.user {
++                        inst.remove_remote(&rm.id, Cancellable::NONE)?;
++                    } else {
++                        // A system remote lives in /var/lib/flatpak, which the
++                        // unprivileged store cannot write. Delegate this one
++                        // operation to a package-owned root-only helper via
++                        // pkexec. The helper validates the verb and the name
++                        // itself; pkexec matches the helper path (and argv1),
++                        // never a `flatpak` command with caller-chosen flags.
++                        let output = std::process::Command::new("/usr/bin/pkexec")
++                            .arg("/usr/libexec/cosmic-store-flatpak-remote")
++                            .arg("remove")
++                            .arg(&rm.id)
++                            .output()?;
++                        if !output.status.success() {
++                            let stderr = String::from_utf8_lossy(&output.stderr);
++                            let detail = if stderr.trim().is_empty() {
++                                format!("exit status {}", output.status)
++                            } else {
++                                stderr.trim().to_string()
++                            };
++                            return Err(format!(
++                                "failed to remove system flatpak remote {}: {}",
++                                rm.id, detail
++                            )
++                            .into());
++                        }
++                    }
+                 }
+                 return Ok(());
+             }
+diff --git a/src/main.rs b/src/main.rs
+index 2d01d13..42ca9c0 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1960,6 +1960,32 @@ impl App {
+             }
+         }
+ 
++        // A system-scope flatpak remote is provisioned for the whole box and
++        // is already active, but the recommended sources above are modelled
++        // as user-scope. Without this pass Flathub would keep offering "Add"
++        // even though it is in use. Mark it enabled and route its Remove
++        // through the FlatpakSystem backend, whose operation uses the
++        // root-only helper instead of trying to write /var/lib/flatpak as an
++        // unprivileged user.
++        if let Some(backend) = self.backends.get(&BackendName::FlatpakSystem) {
++            for cache in backend.info_caches() {
++                let Some(suffix) = cache.source_id.strip_suffix(" (system)") else {
++                    continue;
++                };
++                for source in sources.iter_mut() {
++                    if !matches!(source.kind, SourceKind::Recommended { .. }) {
++                        continue;
++                    }
++                    if source.id == suffix {
++                        if let SourceKind::Recommended { enabled, .. } = &mut source.kind {
++                            *enabled = true;
++                        }
++                        source.backend_name = BackendName::FlatpakSystem;
++                    }
++                }
++            }
++        }
++
+         sources
+     }
+ 

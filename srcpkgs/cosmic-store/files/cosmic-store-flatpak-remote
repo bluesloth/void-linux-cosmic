@@ -1,0 +1,53 @@
+#!/bin/sh
+# cosmic-store-flatpak-remote -- root-only helper for system Flatpak remotes.
+#
+# Why this exists: COSMIC Store's "Manage repositories" panel models its
+# recommended sources as user-scope remotes, but the installer provisions
+# Flathub system-wide. The store now recognises that system remote and offers
+# "Remove". Deleting a system remote writes /var/lib/flatpak/repo/config,
+# which an unprivileged store cannot do, so the store delegates this ONE
+# operation to this package-owned script through pkexec.
+#
+# Policy: org.freedesktop.policykit.pkexec.run-cosmic-store-flatpak-remote
+# annotates this exact path and argv1 = "remove". The helper re-validates
+# every argument itself, so even a caller that satisfies the polkit action
+# cannot make it remove an arbitrary remote or run any other command. No
+# arguments other than the fixed verb and an allowlisted remote name are
+# accepted, and there is no path or flag that reaches `flatpak` unchecked.
+#
+# The store's own guard checks for installed apps from the remote before it
+# ever calls this helper; --force is deliberately NOT used here, so a remote
+# that still has refs cannot be removed behind flatpak's back.
+
+set -u
+
+if [ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]; then
+	echo "cosmic-store-flatpak-remote: must run as root (through pkexec)" >&2
+	exit 1
+fi
+
+if [ "$#" -ne 2 ]; then
+	echo "cosmic-store-flatpak-remote: expected 'remove <name>'" >&2
+	exit 2
+fi
+
+verb=$1
+name=$2
+
+case "$verb" in
+remove) ;;
+*)
+	echo "cosmic-store-flatpak-remote: unsupported operation: $verb" >&2
+	exit 2
+	;;
+esac
+
+case "$name" in
+flathub | cosmic) ;;
+*)
+	echo "cosmic-store-flatpak-remote: remote not allowed: $name" >&2
+	exit 3
+	;;
+esac
+
+exec /usr/bin/flatpak remote-delete --system "$name"
