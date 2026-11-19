@@ -1,9 +1,15 @@
 # Template file for 'cosmic-store'
 pkgname=cosmic-store
 version=1.11.0
-revision=14
+revision=15
 #
 # Carried patches (see docs/UPSTREAM.md "Carried patches"):
+#   patches/zz-add-system-flatpak.patch
+#     Makes Add symmetric with Remove for the two recommended sources:
+#     they are system-scope, and the root-only helper adds them from the
+#     .flatpakrepo files installed under /usr/share/cosmic-store/flatpakrepo/
+#     (allowlisted names only). Custom imports stay user-scope/unprivileged.
+#     Requires the sixth polkit action (argv1="add").
 #   patches/system-flatpak-remote.patch
 #     Manage repositories only tracked user-scope Flatpak sources, so the
 #     system-wide Flathub the installer provisions kept showing "Add". The
@@ -65,6 +71,13 @@ do_install() {
 	# pkexec; its action is auth_admin and it re-validates verb + name.
 	install -Dm755 ${FILESDIR}/cosmic-store-flatpak-remote \
 		${DESTDIR}/usr/libexec/cosmic-store-flatpak-remote
+	# Repo files for the system-scope Add path. The helper reads these by
+	# name from a package-owned directory; the same bytes are compiled into
+	# the store binary via include_bytes! in src/main.rs.
+	for _repo in flathub cosmic; do
+		install -Dm644 ${wrksrc}/res/${_repo}.flatpakrepo \
+			${DESTDIR}/usr/share/cosmic-store/flatpakrepo/${_repo}.flatpakrepo
+	done
 	# Session-login notifier. It runs `cosmic-store --notifier`, which takes the
 	# early branch in `main()` before single-instance, so it cannot swallow a
 	# real store launch. NoDisplay: it is an autostart entry, not a menu item.

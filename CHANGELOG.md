@@ -23,6 +23,34 @@ Tracking a new upstream epoch is `tools/sync-upstream.sh`; see
 `docs/UPSTREAM.md` for the full release procedure and the special cases
 (commit-pinned `libcosmic`, `pop-launcher`'s own version, the meta packages).
 
+## epoch-1.11.0-r12 — 2026-11-19
+
+Store release: Add now works at the same scope as Remove. Only `cosmic-store`
+is re-cut (revision 14 → 15).
+
+### The gap
+
+After r11, removing the system Flathub worked and the row reverted to Add —
+but clicking that Add created a **user-scope** remote, not the system one the
+installer had provisioned. The two buttons disagreed about scope.
+
+### The fix
+
+`patches/zz-add-system-flatpak.patch` makes the two recommended sources
+system-scope, so their Add and Remove both route through the `FlatpakSystem`
+backend and the root-only helper. The helper gains an `add` verb: it accepts
+only an allowlisted name (`flathub`/`cosmic`), reads the corresponding
+`.flatpakrepo` from the package-owned
+`/usr/share/cosmic-store/flatpakrepo/` directory, and runs
+`flatpak remote-add --system --if-not-exists`. A sixth polkit action,
+`…run-cosmic-store-flatpak-add` (`auth_admin`, annotated on the helper path
+and `argv1="add"`), covers it; Remove keeps its own action.
+
+**Custom imports are deliberately unaffected.** The "Import .flatpakrepo"
+dialog reads an arbitrary user-chosen file (`update.rs`), so it stays on the
+unprivileged `FlatpakUser` backend — a user-supplied URL or GPG key never
+reaches root.
+
 ## epoch-1.11.0-r11 — 2026-11-19
 
 Store release: "Manage repositories" now treats a system-wide Flatpak remote

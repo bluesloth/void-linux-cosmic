@@ -34,15 +34,18 @@
       session cannot trigger it. A refused refresh is harmless: the store
       keeps whatever repodata it already has.
 
-  The fifth action handles Remove on a system-scope Flatpak remote (Flathub
-  is provisioned system-wide by the installer). That remote lives in
-  /var/lib/flatpak, which the unprivileged store cannot write, so the store
-  spawns a package-owned helper through pkexec instead of calling libflatpak
-  on the system installation. The action is auth_admin, unlike the refresh
-  action, because removing a system remote can break Flatpak apps for every
-  user. It annotates the helper path and argv1="remove", never a `flatpak`
-  command: the helper itself rejects any verb or remote name outside its
-  allowlist (flathub, cosmic), so no caller-chosen flags can reach flatpak.
+  The fifth and sixth actions handle Remove and Add on system-scope Flatpak
+  remotes (Flathub is provisioned system-wide by the installer). Those
+  remotes live in /var/lib/flatpak, which the unprivileged store cannot
+  write, so the store spawns a package-owned helper through pkexec instead
+  of calling libflatpak on the system installation. Both actions are
+  auth_admin, unlike the refresh action: changing the system remotes affects
+  Flatpak apps for every user. They annotate the helper path and argv1
+  ("remove" / "add"), never a `flatpak` command. The helper rejects any verb
+  or remote name outside its allowlist (flathub, cosmic), and for `add` it
+  reads the .flatpakrepo from /usr/share/cosmic-store/flatpakrepo/. User
+  imports stay unprivileged and user-scope, so no caller-chosen file, URL,
+  key or flag ever reaches root.
 -->
 <policyconfig>
   <vendor>COSMIC Store</vendor>
@@ -101,5 +104,16 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cosmic-store-flatpak-remote</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">remove</annotate>
+  </action>
+  <action id="org.freedesktop.policykit.pkexec.run-cosmic-store-flatpak-add">
+    <description>Add a Flatpak repository with COSMIC Store</description>
+    <message>Authentication is required to add a Flatpak repository</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/cosmic-store-flatpak-remote</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">add</annotate>
   </action>
 </policyconfig>

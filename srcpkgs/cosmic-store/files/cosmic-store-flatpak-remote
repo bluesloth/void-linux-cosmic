@@ -1,23 +1,20 @@
 #!/bin/sh
 # cosmic-store-flatpak-remote -- root-only helper for system Flatpak remotes.
 #
-# Why this exists: COSMIC Store's "Manage repositories" panel models its
-# recommended sources as user-scope remotes, but the installer provisions
-# Flathub system-wide. The store now recognises that system remote and offers
-# "Remove". Deleting a system remote writes /var/lib/flatpak/repo/config,
-# which an unprivileged store cannot do, so the store delegates this ONE
-# operation to this package-owned script through pkexec.
+# Why this exists: COSMIC Store's "Manage repositories" panel works with
+# system-scope remotes (the installer provisions Flathub system-wide), but
+# /var/lib/flatpak is not writable by an unprivileged process. The store
+# delegates Add and Remove on those remotes to this package-owned script
+# through pkexec. Custom .flatpakrepo files imported by the user are NOT
+# handled here: they stay user-scope, so no caller-chosen URL or key ever
+# reaches root.
 #
-# Policy: org.freedesktop.policykit.pkexec.run-cosmic-store-flatpak-remote
-# annotates this exact path and argv1 = "remove". The helper re-validates
-# every argument itself, so even a caller that satisfies the polkit action
-# cannot make it remove an arbitrary remote or run any other command. No
-# arguments other than the fixed verb and an allowlisted remote name are
-# accepted, and there is no path or flag that reaches `flatpak` unchecked.
-#
-# The store's own guard checks for installed apps from the remote before it
-# ever calls this helper; --force is deliberately NOT used here, so a remote
-# that still has refs cannot be removed behind flatpak's back.
+# Policy: two actions, both auth_admin, annotate this exact path with
+# argv1="add" and argv1="remove" respectively. This helper re-validates
+# every argument itself: exactly two args, verb in {add,remove}, name in
+# {flathub,cosmic}. For `add` it reads the repository file from a
+# package-owned directory -- it never accepts a path, URL or key from the
+# caller, so no caller-chosen flags can reach flatpak.
 
 set -u
 
@@ -27,7 +24,7 @@ if [ "$(id -u 2>/dev/null || echo 1)" -ne 0 ]; then
 fi
 
 if [ "$#" -ne 2 ]; then
-	echo "cosmic-store-flatpak-remote: expected 'remove <name>'" >&2
+	echo "cosmic-store-flatpak-remote: expected 'add|remove <name>'" >&2
 	exit 2
 fi
 
@@ -35,7 +32,7 @@ verb=$1
 name=$2
 
 case "$verb" in
-remove) ;;
+add | remove) ;;
 *)
 	echo "cosmic-store-flatpak-remote: unsupported operation: $verb" >&2
 	exit 2
@@ -50,4 +47,19 @@ flathub | cosmic) ;;
 	;;
 esac
 
-exec /usr/bin/flatpak remote-delete --system "$name"
+case "$verb" in
+add)
+	repo_file="/usr/share/cosmic-store/flatpakrepo/$name.flatpakrepo"
+	if [ ! -r "$repo_file" ]; then
+		echo "cosmic-store-flatpak-remote: missing packaged repo file for $name" >&2
+		exit 4
+	fi
+	exec /usr/bin/flatpak remote-add --system --if-not-exists "$name" "$repo_file"
+	;;
+remove)
+	# The store's installed-refs guard runs first; --force is deliberately
+	# not used, so a remote that still has refs cannot be removed behind
+	# flatpak's back.
+	exec /usr/bin/flatpak remote-delete --system "$name"
+	;;
+esac

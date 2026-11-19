@@ -1,0 +1,81 @@
+diff --git a/src/backend/flatpak.rs b/src/backend/flatpak.rs
+index c541499..77426ec 100644
+--- a/src/backend/flatpak.rs
++++ b/src/backend/flatpak.rs
+@@ -622,12 +622,39 @@ impl Backend for Flatpak {
+             }
+             OperationKind::RepositoryAdd(adds) => {
+                 drop(tx);
+-                let mut remotes = Vec::with_capacity(adds.len());
+-                for add in adds.iter() {
+-                    remotes.push(Remote::from_file(&add.id, &glib::Bytes::from(&add.data))?);
+-                }
+-                for remote in remotes {
+-                    inst.add_remote(&remote, true, Cancellable::NONE)?;
++                if self.user {
++                    let mut remotes = Vec::with_capacity(adds.len());
++                    for add in adds.iter() {
++                        remotes.push(Remote::from_file(&add.id, &glib::Bytes::from(&add.data))?);
++                    }
++                    for remote in remotes {
++                        inst.add_remote(&remote, true, Cancellable::NONE)?;
++                    }
++                } else {
++                    // Recommended sources are now system-scope. Their repo
++                    // files are package-owned and the helper accepts only an
++                    // allowlisted name, reading the file itself -- a user's
++                    // imported .flatpakrepo never reaches root.
++                    for add in adds.iter() {
++                        let output = std::process::Command::new("/usr/bin/pkexec")
++                            .arg("/usr/libexec/cosmic-store-flatpak-remote")
++                            .arg("add")
++                            .arg(&add.id)
++                            .output()?;
++                        if !output.status.success() {
++                            let stderr = String::from_utf8_lossy(&output.stderr);
++                            let detail = if stderr.trim().is_empty() {
++                                format!("exit status {}", output.status)
++                            } else {
++                                stderr.trim().to_string()
++                            };
++                            return Err(format!(
++                                "failed to add system flatpak remote {}: {}",
++                                add.id, detail
++                            )
++                            .into());
++                        }
++                    }
+                 }
+                 return Ok(());
+             }
+diff --git a/src/main.rs b/src/main.rs
+index 2586498..747fa6b 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1934,9 +1934,15 @@ impl App {
+ 
+     pub fn sources(&self) -> Vec<Source> {
+         let mut sources = Vec::new();
+-        if self.backends.contains_key(&BackendName::FlatpakUser) {
++        // Recommended sources are system-scope: that is where the installer
++        // provisions Flathub, and Add/Remove must agree on the scope. Their
++        // .flatpakrepo data is compiled in from res/, but the system backend
++        // adds them through the root-only helper using the SAME files shipped
++        // under /usr/share/cosmic-store/flatpakrepo/, so user-chosen repo
++        // files never reach root (custom imports stay FlatpakUser).
++        if self.backends.contains_key(&BackendName::FlatpakSystem) {
+             sources.push(Source {
+-                backend_name: BackendName::FlatpakUser,
++                backend_name: BackendName::FlatpakSystem,
+                 id: "flathub".to_string(),
+                 name: "Flathub".to_string(),
+                 kind: SourceKind::Recommended {
+@@ -1946,7 +1952,7 @@ impl App {
+                 requires: Vec::new(),
+             });
+             sources.push(Source {
+-                backend_name: BackendName::FlatpakUser,
++                backend_name: BackendName::FlatpakSystem,
+                 id: "cosmic".to_string(),
+                 name: "COSMIC Flatpak".to_string(),
+                 kind: SourceKind::Recommended {
